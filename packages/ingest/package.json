@@ -1,0 +1,1 @@
+{"name":"@gitflow/ingest","version":"0.1.0","type":"module","exports":"./src/index.ts","scripts":{"build":"tsc --noEmit","typecheck":"tsc --noEmit","test":"vitest run","lint":"tsc --noEmit"},"dependencies":{"@gitflow/core":"workspace:*","tar-stream":"^3.1.7"},"devDependencies":{"vitest":"^3.2.4","typescript":"^5.9.2","@types/node":"^22.15.0","@types/tar-stream":"^3.1.4"}}

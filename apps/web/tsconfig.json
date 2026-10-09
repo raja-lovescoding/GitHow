@@ -1,0 +1,29 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "preserve",
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "incremental": true,
+    "isolatedModules": true
+  },
+  "exclude": [
+    "node_modules"
+  ]
+}

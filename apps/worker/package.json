@@ -1,0 +1,1 @@
+{"name":"@gitflow/worker","version":"0.1.0","private":true,"type":"module","scripts":{"dev":"tsx src/worker.ts","build":"tsc --noEmit","typecheck":"tsc --noEmit","lint":"tsc --noEmit"},"dependencies":{"@gitflow/ingest":"workspace:*","pg-boss":"^12.5.0"},"devDependencies":{"tsx":"^4.20.3","typescript":"^5.9.2","@types/node":"^22.15.0"}}

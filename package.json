@@ -1,0 +1,21 @@
+{
+  "name": "gitflow-platform",
+  "private": true,
+  "packageManager": "pnpm@10.33.3",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint",
+    "format": "prettier --write .",
+    "db:generate": "pnpm --filter @gitflow/db db:generate",
+    "db:migrate": "pnpm --filter @gitflow/db db:migrate",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "turbo": "^2.5.6",
+    "typescript": "^5.9.2"
+  }
+}
