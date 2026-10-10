@@ -42,7 +42,7 @@ export function createApp(options: AppOptions = {}) {
     const params = request.params as { id: string };
     const rawLimit = Number((request.query as { limit?: string }).limit ?? 500);
     if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 5000) return reply.code(400).send({ error: 'invalid_limit', message: 'limit must be an integer between 1 and 5000.' });
-    return persistence.getGraph(params.id, analyzerVersion, rawLimit);
+    return persistence.getGraph(params.id, analyzerVersion, graphSchemaVersion, rawLimit);
   });
   return app;
 }

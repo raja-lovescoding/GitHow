@@ -1,14 +1,14 @@
 # GitFlow contributor rules
 
 - Keep `packages/core` dependency-free apart from Zod contracts.
-- Never execute repository code, install repository dependencies, or run repository scripts.
+- Never execute analyzed repository code, package scripts, build scripts, tests, or other executable content. GitHow development commands may be run in this controlled workspace for validation; keep that boundary separate from repository analysis.
 - Resolve GitHub refs to an immutable commit SHA before fetching archives.
 - Treat archive entries as hostile: reject traversal, symlinks, excessive sizes, and excessive file counts.
 - Keep database and object-storage access behind `packages/db` and worker boundaries.
 - Do not add AST parsing, RIG construction, GitFlow, GitExplain, or GitTime behavior to the Phase 2 ingestion pipeline.
 - Keep display branding configurable; do not bake a future GitFlow/GitHow product rename into database, queue, or analyzer identifiers.
 - Run `pnpm typecheck`, `pnpm test`, and `pnpm build` before reporting completion.
-- Phase 3 graph extraction belongs in `packages/analyzer`, uses syntax trees rather than regular-expression parsing, and must preserve source evidence and deterministic IDs. Persist graph records transactionally and keep analysis separate from ingestion.
+- Phase 3 graph extraction belongs in `packages/analyzer`, uses the TypeScript compiler AST for the current TypeScript/JavaScript scope behind the analyzer's internal parser boundary (rather than regular-expression parsing), and must preserve source evidence and deterministic IDs. Tree-sitter may be evaluated later for multi-language or parser-portability needs; do not maintain duplicate parser implementations without a concrete requirement. Persist graph records transactionally and keep analysis separate from ingestion.
 
 <!-- BEGIN:turborepo-agent-rules -->
 

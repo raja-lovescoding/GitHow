@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { loadConfig } from '@gitflow/config';
 import { analysisJobPayloadSchema, ingestionJobPayloadSchema } from '@gitflow/core';
 import { graphSchemaVersion } from '@gitflow/analyzer';
-import { createDatabase, ensureAnalysisJob, getAnalysis, persistAnalysis, updateAnalysis, updateJob, updateSnapshot } from '@gitflow/db';
+import { createDatabase, ensureAnalysisJob, getAnalysis, getQueuedAnalysisJobs, persistAnalysis, updateAnalysis, updateJob, updateSnapshot } from '@gitflow/db';
 import { createGitHubClient, downloadArchive } from '@gitflow/github';
 import { buildManifest } from '@gitflow/ingest';
 import { createObjectStorage } from '@gitflow/storage';
@@ -16,6 +16,13 @@ const { db, sql } = createDatabase(config.DATABASE_URL);
 const storage = createObjectStorage({ endpoint: config.S3_ENDPOINT, region: config.S3_REGION, accessKeyId: config.S3_ACCESS_KEY, secretAccessKey: config.S3_SECRET_KEY, bucket: config.S3_BUCKET });
 const github = createGitHubClient(config.GITHUB_TOKEN);
 const boss = new PgBoss(config.DATABASE_URL);
+const publishQueuedAnalysis = async () => {
+  const queued = await getQueuedAnalysisJobs(db);
+  await Promise.all(queued.map(async ({ job, snapshot }) => {
+    if (!snapshot.archiveKey || !snapshot.manifestKey) return;
+    await boss.send(analysisQueueName, { jobId: job.id, snapshotId: snapshot.id, archiveKey: snapshot.archiveKey, manifestKey: snapshot.manifestKey, sha: snapshot.sha, analyzerVersion: snapshot.analyzerVersion, schemaVersion: graphSchemaVersion }, { singletonKey: `analysis:${snapshot.id}:${snapshot.analyzerVersion}:${graphSchemaVersion}` });
+  }));
+};
 
 await storage.ensureBucket();
 await boss.start();
@@ -42,7 +49,7 @@ await boss.work(queueName, async (jobs) => {
       await boss.send(analysisQueueName, { jobId: analysisJob.id, snapshotId: payload.snapshotId, archiveKey: `${baseKey}/archive.tar.gz`, manifestKey: `${baseKey}/manifest.json`, sha: payload.sha, analyzerVersion: payload.analyzerVersion, schemaVersion: graphSchemaVersion }, { singletonKey: `analysis:${payload.snapshotId}:${payload.analyzerVersion}:${graphSchemaVersion}` });
     } catch (analysisQueueError) {
       const message = analysisQueueError instanceof Error ? analysisQueueError.message : 'Analysis could not be queued.';
-      await updateAnalysis(db, payload.snapshotId, payload.analyzerVersion, graphSchemaVersion, { status: 'failed', progress: 100, errorMessage: message });
+      await updateAnalysis(db, payload.snapshotId, payload.analyzerVersion, graphSchemaVersion, { status: 'queued', progress: 0, errorMessage: message });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Repository ingestion failed.';
@@ -54,6 +61,9 @@ await boss.work(queueName, async (jobs) => {
     await updateJob(db, payload.jobId, { status: 'failed', progress: 100, errorMessage: message });
   }
 });
+
+await publishQueuedAnalysis().catch((error) => console.error(JSON.stringify({ event: 'analysis_queue_recovery_failed', message: error instanceof Error ? error.message : 'Unknown error' })));
+const analysisRecoveryTimer = setInterval(() => { void publishQueuedAnalysis().catch((error) => console.error(JSON.stringify({ event: 'analysis_queue_recovery_failed', message: error instanceof Error ? error.message : 'Unknown error' }))); }, 30_000);
 
 await boss.work(analysisQueueName, async (jobs) => {
   const raw = jobs[0]?.data;
@@ -80,7 +90,7 @@ await boss.work(analysisQueueName, async (jobs) => {
   }
 });
 
-const shutdown = async () => { await boss.stop(); await sql.end(); process.exit(0); };
+const shutdown = async () => { clearInterval(analysisRecoveryTimer); await boss.stop(); await sql.end(); process.exit(0); };
 process.once('SIGTERM', () => void shutdown());
 process.once('SIGINT', () => void shutdown());
 console.log(JSON.stringify({ event: 'worker_started', queue: queueName }));

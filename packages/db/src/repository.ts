@@ -73,21 +73,26 @@ export async function getAnalysis(db: Database, snapshotId: string, analyzerVers
   return row ? { id: row.id, snapshotId: row.snapshotId, analyzerVersion: row.analyzerVersion, schemaVersion: row.schemaVersion, status: row.status, progress: row.progress, diagnostics: row.diagnostics, errorMessage: row.errorMessage } : undefined;
 }
 
+export async function getQueuedAnalysisJobs(db: Database) {
+  const rows = await db.select({ job: jobs, snapshot: snapshots }).from(jobs).innerJoin(snapshots, eq(jobs.snapshotId, snapshots.id)).where(and(eq(jobs.type, 'analysis'), eq(jobs.status, 'queued'), eq(snapshots.status, 'ready')));
+  return rows.map(({ job, snapshot }) => ({ job: mapJob(job), snapshot: { id: snapshot.id, sha: snapshot.commitSha, analyzerVersion: snapshot.analyzerVersion, archiveKey: snapshot.archiveKey, manifestKey: snapshot.manifestKey } }));
+}
+
 export async function persistAnalysis(db: Database, result: AnalysisResult): Promise<void> {
   await db.transaction(async (tx) => {
     const [run] = await tx.select().from(analysisRuns).where(and(eq(analysisRuns.snapshotId, result.snapshotId), eq(analysisRuns.analyzerVersion, result.analyzerVersion), eq(analysisRuns.schemaVersion, result.schemaVersion))).limit(1);
     if (!run) await tx.insert(analysisRuns).values({ snapshotId: result.snapshotId, analyzerVersion: result.analyzerVersion, schemaVersion: result.schemaVersion, status: result.diagnostics.length ? 'partial' : 'completed', progress: 100, diagnostics: result.diagnostics });
     else await tx.update(analysisRuns).set({ status: result.diagnostics.length ? 'partial' : 'completed', progress: 100, diagnostics: result.diagnostics, errorMessage: null, updatedAt: new Date() }).where(eq(analysisRuns.id, run.id));
-    await tx.delete(graphEdges).where(and(eq(graphEdges.snapshotId, result.snapshotId), eq(graphEdges.analyzerVersion, result.analyzerVersion)));
-    await tx.delete(graphNodes).where(and(eq(graphNodes.snapshotId, result.snapshotId), eq(graphNodes.analyzerVersion, result.analyzerVersion)));
-    if (result.nodes.length) await tx.insert(graphNodes).values(result.nodes.map((node) => ({ id: node.id, snapshotId: node.snapshotId, analyzerVersion: node.analyzerVersion, nodeType: node.type, nodeKey: node.key, evidence: node.evidence ?? null })));
-    if (result.edges.length) await tx.insert(graphEdges).values(result.edges.map((edge) => ({ id: edge.id, snapshotId: edge.snapshotId, analyzerVersion: edge.analyzerVersion, edgeType: edge.type, fromNodeId: edge.from, toNodeId: edge.to, resolution: edge.resolution, evidence: edge.evidence })));
+    await tx.delete(graphEdges).where(and(eq(graphEdges.snapshotId, result.snapshotId), eq(graphEdges.analyzerVersion, result.analyzerVersion), eq(graphEdges.schemaVersion, result.schemaVersion)));
+    await tx.delete(graphNodes).where(and(eq(graphNodes.snapshotId, result.snapshotId), eq(graphNodes.analyzerVersion, result.analyzerVersion), eq(graphNodes.schemaVersion, result.schemaVersion)));
+    if (result.nodes.length) await tx.insert(graphNodes).values(result.nodes.map((node) => ({ id: node.id, snapshotId: node.snapshotId, analyzerVersion: node.analyzerVersion, schemaVersion: result.schemaVersion, nodeType: node.type, nodeKey: node.key, evidence: node.evidence ?? null })));
+    if (result.edges.length) await tx.insert(graphEdges).values(result.edges.map((edge) => ({ id: edge.id, snapshotId: edge.snapshotId, analyzerVersion: edge.analyzerVersion, schemaVersion: result.schemaVersion, edgeType: edge.type, fromNodeId: edge.from, toNodeId: edge.to, resolution: edge.resolution, evidence: edge.evidence })));
   });
 }
 
-export async function getGraph(db: Database, snapshotId: string, analyzerVersion: string, limit = 500) {
-  const nodes = await db.select().from(graphNodes).where(and(eq(graphNodes.snapshotId, snapshotId), eq(graphNodes.analyzerVersion, analyzerVersion))).limit(limit);
-  const edges = await db.select().from(graphEdges).where(and(eq(graphEdges.snapshotId, snapshotId), eq(graphEdges.analyzerVersion, analyzerVersion))).limit(limit);
-  const [run] = await db.select().from(analysisRuns).where(and(eq(analysisRuns.snapshotId, snapshotId), eq(analysisRuns.analyzerVersion, analyzerVersion))).orderBy(desc(analysisRuns.updatedAt)).limit(1);
+export async function getGraph(db: Database, snapshotId: string, analyzerVersion: string, schemaVersion: string, limit = 500) {
+  const nodes = await db.select().from(graphNodes).where(and(eq(graphNodes.snapshotId, snapshotId), eq(graphNodes.analyzerVersion, analyzerVersion), eq(graphNodes.schemaVersion, schemaVersion))).limit(limit);
+  const edges = await db.select().from(graphEdges).where(and(eq(graphEdges.snapshotId, snapshotId), eq(graphEdges.analyzerVersion, analyzerVersion), eq(graphEdges.schemaVersion, schemaVersion))).limit(limit);
+  const [run] = await db.select().from(analysisRuns).where(and(eq(analysisRuns.snapshotId, snapshotId), eq(analysisRuns.analyzerVersion, analyzerVersion), eq(analysisRuns.schemaVersion, schemaVersion))).orderBy(desc(analysisRuns.updatedAt)).limit(1);
   return { analysis: run, nodes, edges };
 }

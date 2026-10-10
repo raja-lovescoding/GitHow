@@ -26,7 +26,8 @@ function addEdge(edges: Map<string, GraphEdge>, snapshotId: string, type: GraphE
   edges.set(id, { id, type, snapshotId, analyzerVersion: version, from, to, resolution, evidence: ev });
 }
 function symbolName(node: ts.Node): string | undefined {
-  if ('name' in node && node.name && ts.isIdentifier(node.name)) return node.name.text;
+  const name = (node as ts.NamedDeclaration).name;
+  if (name && ts.isIdentifier(name)) return name.text;
   return undefined;
 }
 
@@ -75,11 +76,12 @@ export function analyzeRepository(input: AnalyzeInput): AnalysisResult {
         const targetId = target ? addNode(nodes, input.snapshotId, 'file', target, version) : addNode(nodes, input.snapshotId, 'module', `unresolved:${node.moduleSpecifier.text}`, version);
         addEdge(edges, input.snapshotId, 'IMPORTS', fileId, targetId, target ? 'resolved' : 'unresolved', version, evidence(file.path, source, node.moduleSpecifier, node.moduleSpecifier.text, target ? undefined : 'relative module was not found'));
       }
-      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require' && node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0])) {
-        const specifier = node.arguments[0].text;
+      const requireArgument = ts.isCallExpression(node) && node.arguments.length === 1 ? node.arguments[0] : undefined;
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require' && requireArgument && ts.isStringLiteral(requireArgument)) {
+        const specifier = requireArgument.text;
         const target = resolveRelative(file.path, specifier, files.map((item) => item.path));
         const targetId = target ? addNode(nodes, input.snapshotId, 'file', target, version) : addNode(nodes, input.snapshotId, 'module', `unresolved:${specifier}`, version);
-        addEdge(edges, input.snapshotId, 'IMPORTS', fileId, targetId, target ? 'resolved' : 'unresolved', version, evidence(file.path, source, node.arguments[0], specifier, target ? undefined : 'relative module was not found'));
+        addEdge(edges, input.snapshotId, 'IMPORTS', fileId, targetId, target ? 'resolved' : 'unresolved', version, evidence(file.path, source, requireArgument, specifier, target ? undefined : 'relative module was not found'));
       }
       if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
         const left = node.left;
@@ -97,8 +99,19 @@ export function analyzeRepository(input: AnalyzeInput): AnalysisResult {
       }
       ts.forEachChild(node, (child) => visit(child, current));
     };
+    const collectDeclarations = (node: ts.Node) => {
+      if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node) || ts.isEnumDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isMethodDeclaration(node) || ts.isConstructorDeclaration(node)) {
+        const name = symbolName(node) ?? (ts.isConstructorDeclaration(node) ? 'constructor' : undefined);
+        if (name) declarations.set(`${file.path}:${name}`, nodeId(input.snapshotId, 'symbol', `${file.path}:${node.pos}:${name}`, version));
+      } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
+        declarations.set(`${file.path}:${node.name.text}`, nodeId(input.snapshotId, 'symbol', `${file.path}:${node.pos}:${node.name.text}`, version));
+      }
+      ts.forEachChild(node, collectDeclarations);
+    };
+    collectDeclarations(source);
     visit(source);
-    for (const diagnostic of source.parseDiagnostics) {
+    const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+    for (const diagnostic of parseDiagnostics) {
       const start = diagnostic.start ?? 0;
       const pos = source.getLineAndCharacterOfPosition(start);
       diagnostics.push({ path: file.path, message: ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '), startLine: pos.line + 1, startColumn: pos.character + 1 });
@@ -109,7 +122,17 @@ export function analyzeRepository(input: AnalyzeInput): AnalysisResult {
 
 function resolveRelative(from: string, specifier: string, paths: readonly string[]): string | undefined {
   if (!specifier.startsWith('.')) return undefined;
-  const base = `${from.slice(0, from.lastIndexOf('/') + 1)}${specifier}`.replaceAll('\\', '/');
+  const base = normalizePath(`${from.slice(0, from.lastIndexOf('/') + 1)}${specifier}`);
   const candidates = [base, ...['.ts', '.tsx', '.js', '.jsx'].map((ext) => `${base}${ext}`), ...['.ts', '.tsx', '.js', '.jsx'].map((ext) => `${base}/index${ext}`)];
   return candidates.find((candidate) => paths.includes(candidate));
+}
+
+function normalizePath(value: string): string {
+  const parts: string[] = [];
+  for (const part of value.replaceAll('\\', '/').split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') { parts.pop(); continue; }
+    parts.push(part);
+  }
+  return parts.join('/');
 }

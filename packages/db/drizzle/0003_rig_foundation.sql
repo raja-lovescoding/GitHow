@@ -18,16 +18,18 @@ CREATE TABLE "graph_nodes" (
   "id" text PRIMARY KEY,
   "snapshot_id" uuid NOT NULL REFERENCES "snapshots"("id"),
   "analyzer_version" text NOT NULL,
+  "schema_version" text NOT NULL,
   "node_type" text NOT NULL,
   "node_key" text NOT NULL,
   "evidence" jsonb
 );
 CREATE INDEX "graph_nodes_snapshot_idx" ON "graph_nodes" ("snapshot_id");
-CREATE UNIQUE INDEX "graph_nodes_snapshot_key_idx" ON "graph_nodes" ("snapshot_id", "node_key");
+CREATE UNIQUE INDEX "graph_nodes_snapshot_key_idx" ON "graph_nodes" ("snapshot_id", "analyzer_version", "schema_version", "node_key");
 CREATE TABLE "graph_edges" (
   "id" text PRIMARY KEY,
   "snapshot_id" uuid NOT NULL REFERENCES "snapshots"("id"),
   "analyzer_version" text NOT NULL,
+  "schema_version" text NOT NULL,
   "edge_type" text NOT NULL,
   "from_node_id" text NOT NULL,
   "to_node_id" text NOT NULL,
@@ -35,4 +37,4 @@ CREATE TABLE "graph_edges" (
   "evidence" jsonb
 );
 CREATE INDEX "graph_edges_snapshot_idx" ON "graph_edges" ("snapshot_id");
-CREATE UNIQUE INDEX "graph_edges_snapshot_key_idx" ON "graph_edges" ("snapshot_id", "edge_type", "from_node_id", "to_node_id", "id");
+CREATE UNIQUE INDEX "graph_edges_snapshot_key_idx" ON "graph_edges" ("snapshot_id", "analyzer_version", "schema_version", "edge_type", "from_node_id", "to_node_id", "id");
