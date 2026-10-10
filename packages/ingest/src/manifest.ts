@@ -35,6 +35,7 @@ export async function buildManifest(archive: Buffer, limits: ArchiveLimits = def
   let extractedBytes = 0;
   extract.on('entry', (header, stream, next) => {
     void (async () => {
+      if (header.type === 'symlink' || header.type === 'link') throw new Error('Archive contains a link entry.');
       if (header.type !== 'file') { stream.resume(); stream.on('end', next); return; }
       if (header.size > limits.maxFileBytes) throw new Error('Repository contains a file larger than the configured limit.');
       if (entries.length >= limits.maxFiles) throw new Error('Repository contains more files than the configured limit.');
@@ -52,4 +53,41 @@ export async function buildManifest(archive: Buffer, limits: ArchiveLimits = def
   Readable.from(archive).pipe(createGunzip()).pipe(extract);
   await completion;
   return entries.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+export interface ExtractedSourceFile { path: string; content: string; }
+
+export async function extractSourceFiles(archive: Buffer, manifest: readonly ManifestEntry[], limits: ArchiveLimits = defaultArchiveLimits): Promise<ExtractedSourceFile[]> {
+  if (archive.byteLength > limits.maxArchiveBytes) throw new Error('Repository archive exceeds the configured download limit.');
+  const expected = new Map(manifest.filter((entry) => entry.classification === 'source' && entry.language && ['typescript', 'javascript'].includes(entry.language)).map((entry) => [entry.path, entry]));
+  const files = new Map<string, ExtractedSourceFile>();
+  const extract = tar.extract();
+  let extractedBytes = 0;
+  extract.on('entry', (header, stream, next) => {
+    void (async () => {
+      if (header.type === 'symlink' || header.type === 'link') throw new Error('Archive contains a link entry.');
+      if (header.type !== 'file') { stream.resume(); stream.on('end', next); return; }
+      const path = safePath(header.name);
+      const entry = expected.get(path);
+      if (!entry) { stream.resume(); stream.on('end', next); return; }
+      if (header.size > limits.maxFileBytes || header.size !== entry.size) throw new Error(`Source file size does not match its manifest: ${path}`);
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of stream) {
+        const buffer = chunk as Buffer;
+        size += buffer.length;
+        extractedBytes += buffer.length;
+        if (extractedBytes > limits.maxExtractedBytes) throw new Error('Repository exceeds the extracted-size limit.');
+        chunks.push(buffer);
+      }
+      const content = Buffer.concat(chunks);
+      if (createHash('sha256').update(content).digest('hex') !== entry.sha256) throw new Error(`Source file hash does not match its manifest: ${path}`);
+      files.set(path, { path, content: content.toString('utf8') });
+      next();
+    })().catch((error) => extract.destroy(error));
+  });
+  const completion = new Promise<void>((resolve, reject) => { extract.once('finish', resolve); extract.once('error', reject); });
+  Readable.from(archive).pipe(createGunzip()).pipe(extract);
+  await completion;
+  return [...files.values()].sort((a, b) => a.path.localeCompare(b.path));
 }

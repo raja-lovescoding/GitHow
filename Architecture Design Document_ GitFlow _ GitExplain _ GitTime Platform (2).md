@@ -1161,3 +1161,9 @@ The milestone requires only: ingestion, one language plugin, one framework adapt
 5. Appendix A, end-to-end sequence diagram (modified)
 
 **Unchanged:** section 20 (private repositories), the Repository Intelligence Graph and data model, analysis pipeline, language plugin architecture, GitExplain, GitTime, LLM architecture, technology recommendations, security architecture (apart from the one SSRF line), and scalability architecture.
+
+### Phase 3 implementation note
+
+The first RIG foundation is implemented as the independent `packages/analyzer` workspace package. It parses TypeScript, TSX, JavaScript, and JSX using the TypeScript syntax tree, then emits versioned snapshot, file, and symbol nodes plus conservative containment, declaration, import, export, call, extends, and implements edges. Every record carries a stable SHA-256 identifier and one-based source evidence. Relative imports use only supported extensions and `index` conventions; unresolved imports and calls remain explicit unresolved edges with reasons. Syntax diagnostics produce partial analysis rather than discarding valid regions.
+
+Persistence is provided by `analysis_runs`, `graph_nodes`, and `graph_edges` in the database package. Graph replacement is performed in one transaction, keyed by immutable snapshot, analyzer version, and schema version, so retries cannot mix commits or leave a successful status with incomplete records. The bounded API surface is `GET /snapshots/:id/graph?limit=...`. Full worker scheduling and richer semantic resolution remain subsequent increments; repository code is never executed.

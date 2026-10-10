@@ -5,8 +5,10 @@
 - Resolve GitHub refs to an immutable commit SHA before fetching archives.
 - Treat archive entries as hostile: reject traversal, symlinks, excessive sizes, and excessive file counts.
 - Keep database and object-storage access behind `packages/db` and worker boundaries.
-- Do not add AST, RIG, GitFlow, GitExplain, or GitTime behavior to Phase 1 ingestion code.
+- Do not add AST parsing, RIG construction, GitFlow, GitExplain, or GitTime behavior to the Phase 2 ingestion pipeline.
+- Keep display branding configurable; do not bake a future GitFlow/GitHow product rename into database, queue, or analyzer identifiers.
 - Run `pnpm typecheck`, `pnpm test`, and `pnpm build` before reporting completion.
+- Phase 3 graph extraction belongs in `packages/analyzer`, uses syntax trees rather than regular-expression parsing, and must preserve source evidence and deterministic IDs. Persist graph records transactionally and keep analysis separate from ingestion.
 
 <!-- BEGIN:turborepo-agent-rules -->
 

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "jobs_snapshot_type_idx" ON "jobs" USING btree ("snapshot_id","type");

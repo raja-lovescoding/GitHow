@@ -37,7 +37,7 @@ export function parseRepositoryPath(segments: readonly string[]): RepoIdentity {
 
 export const snapshotStatusSchema = z.enum(['requested', 'resolving', 'fetching', 'processing', 'ready', 'failed']);
 export type SnapshotStatus = z.infer<typeof snapshotStatusSchema>;
-export const jobStageSchema = z.enum(['resolving', 'fetching', 'manifest', 'storing', 'complete']);
+export const jobStageSchema = z.enum(['resolving', 'fetching', 'manifest', 'storing', 'analysis', 'complete']);
 export type JobStage = z.infer<typeof jobStageSchema>;
 export const manifestEntrySchema = z.object({ path: z.string(), size: z.number().int().nonnegative(), sha256: z.string(), extension: z.string(), language: z.string().nullable(), classification: z.enum(['source', 'binary', 'generated', 'vendor', 'irrelevant']) });
 export type ManifestEntry = z.infer<typeof manifestEntrySchema>;
