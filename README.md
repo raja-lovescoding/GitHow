@@ -1,5 +1,4 @@
 # GitHow
-# GitHow
 
 ### Understand how a codebase actually works.
 
