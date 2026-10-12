@@ -1,7 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { RepoIdentity, SnapshotStatus, JobStage } from '@gitflow/core';
 import { analysisRuns, graphEdges, graphNodes, jobs, repositories, snapshots } from './schema.js';
-import type { AnalysisResult } from '@gitflow/analyzer';
+import type { AnalysisResult, GraphEdge, GraphNode } from '@gitflow/analyzer';
 import type { Database } from './client.js';
 
 export interface DurableRepository { id: string; identity: RepoIdentity; defaultBranch: string; description: string | null; sha: string; visibility: 'public' | 'private'; }
@@ -40,6 +40,7 @@ export async function submitSnapshot(db: Database, metadata: { identity: RepoIde
 export async function getJob(db: Database, id: string): Promise<DurableJob | undefined> { const [row] = await db.select().from(jobs).where(eq(jobs.id, id)).limit(1); return row ? mapJob(row) : undefined; }
 export async function getJobForSnapshot(db: Database, snapshotId: string): Promise<DurableJob | undefined> { const [row] = await db.select().from(jobs).where(and(eq(jobs.snapshotId, snapshotId), eq(jobs.type, 'ingest'))).orderBy(desc(jobs.createdAt)).limit(1); return row ? mapJob(row) : undefined; }
 export async function getRepositoryByCanonical(db: Database, canonical: string): Promise<DurableRepository | undefined> { const [row] = await db.select().from(repositories).where(eq(repositories.canonical, canonical)).limit(1); return row ? mapRepository(row) : undefined; }
+export async function getSnapshotById(db: Database, snapshotId: string): Promise<DurableSnapshot | undefined> { const [row] = await db.select().from(snapshots).where(eq(snapshots.id, snapshotId)).limit(1); return row ? mapSnapshot(row) : undefined; }
 export async function getSnapshotForRepository(db: Database, repositoryId: string, sha: string, analyzerVersion: string): Promise<DurableSnapshot | undefined> { const [row] = await db.select().from(snapshots).where(and(eq(snapshots.repositoryId, repositoryId), eq(snapshots.commitSha, sha), eq(snapshots.analyzerVersion, analyzerVersion))).limit(1); return row ? mapSnapshot(row) : undefined; }
 export async function getLatestSnapshot(db: Database, repositoryId: string, analyzerVersion: string): Promise<DurableSnapshot | undefined> { const [row] = await db.select().from(snapshots).where(and(eq(snapshots.repositoryId, repositoryId), eq(snapshots.analyzerVersion, analyzerVersion))).orderBy(desc(snapshots.updatedAt)).limit(1); return row ? mapSnapshot(row) : undefined; }
 export async function updateJob(db: Database, id: string, values: Partial<{ status: 'queued' | 'running' | 'completed' | 'failed'; stage: JobStage; progress: number; attempts: number; errorMessage: string | null }>): Promise<void> { await db.update(jobs).set({ ...values, updatedAt: new Date() }).where(eq(jobs.id, id)); }
@@ -91,8 +92,10 @@ export async function persistAnalysis(db: Database, result: AnalysisResult): Pro
 }
 
 export async function getGraph(db: Database, snapshotId: string, analyzerVersion: string, schemaVersion: string, limit = 500) {
-  const nodes = await db.select().from(graphNodes).where(and(eq(graphNodes.snapshotId, snapshotId), eq(graphNodes.analyzerVersion, analyzerVersion), eq(graphNodes.schemaVersion, schemaVersion))).limit(limit);
-  const edges = await db.select().from(graphEdges).where(and(eq(graphEdges.snapshotId, snapshotId), eq(graphEdges.analyzerVersion, analyzerVersion), eq(graphEdges.schemaVersion, schemaVersion))).limit(limit);
+  const nodeRows = await db.select().from(graphNodes).where(and(eq(graphNodes.snapshotId, snapshotId), eq(graphNodes.analyzerVersion, analyzerVersion), eq(graphNodes.schemaVersion, schemaVersion))).limit(limit);
+  const edgeRows = await db.select().from(graphEdges).where(and(eq(graphEdges.snapshotId, snapshotId), eq(graphEdges.analyzerVersion, analyzerVersion), eq(graphEdges.schemaVersion, schemaVersion))).limit(limit);
   const [run] = await db.select().from(analysisRuns).where(and(eq(analysisRuns.snapshotId, snapshotId), eq(analysisRuns.analyzerVersion, analyzerVersion), eq(analysisRuns.schemaVersion, schemaVersion))).orderBy(desc(analysisRuns.updatedAt)).limit(1);
+  const nodes: GraphNode[] = nodeRows.map((node) => ({ id: node.id, type: node.nodeType as GraphNode['type'], snapshotId: node.snapshotId, analyzerVersion: node.analyzerVersion, key: node.nodeKey, evidence: node.evidence as GraphNode['evidence'] }));
+  const edges: GraphEdge[] = edgeRows.map((edge) => ({ id: edge.id, type: edge.edgeType as GraphEdge['type'], snapshotId: edge.snapshotId, analyzerVersion: edge.analyzerVersion, from: edge.fromNodeId, to: edge.toNodeId, resolution: edge.resolution as GraphEdge['resolution'], evidence: edge.evidence as GraphEdge['evidence'] }));
   return { analysis: run, nodes, edges };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDatabase } from './client.js';
-import { ensureAnalysisJob, getAnalysis, persistAnalysis, submitSnapshot } from './repository.js';
+import { ensureAnalysisJob, getAnalysis, getGraph, persistAnalysis, submitSnapshot } from './repository.js';
 import { graphSchemaVersion, analyzerVersion } from '@gitflow/analyzer';
 
 describe('PostgreSQL persistence integration', () => {
@@ -21,6 +21,7 @@ describe('PostgreSQL persistence integration', () => {
     await persistAnalysis(db, result);
     await persistAnalysis(db, result);
     await expect(getAnalysis(db, submission.snapshot.id, analyzerVersion, graphSchemaVersion)).resolves.toMatchObject({ status: 'completed', progress: 100 });
+    await expect(getGraph(db, submission.snapshot.id, analyzerVersion, graphSchemaVersion)).resolves.toMatchObject({ nodes: [{ id: `node-${process.pid}`, type: 'snapshot', key: submission.snapshot.id }], edges: [] });
     await sql`delete from graph_edges where snapshot_id = ${submission.snapshot.id}`; await sql`delete from graph_nodes where snapshot_id = ${submission.snapshot.id}`; await sql`delete from analysis_runs where snapshot_id = ${submission.snapshot.id}`; await sql`delete from jobs where snapshot_id = ${submission.snapshot.id}`; await sql`delete from snapshots where id = ${submission.snapshot.id}`; await sql`delete from repositories where canonical = ${metadata.identity.canonical}`; await sql.end();
   });
 });

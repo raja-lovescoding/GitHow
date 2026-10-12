@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { normalizeGitHubRepository } from '@gitflow/core';
+import { normalizeGitHubRepository, type ManifestEntry } from '@gitflow/core';
 import { graphSchemaVersion } from '@gitflow/analyzer';
 import { createGitHubClient, resolveRepository, type RepositoryMetadata } from '@gitflow/github';
 import { z } from 'zod';
@@ -9,7 +9,17 @@ import type { Persistence, QueuePublisher } from './persistence.js';
 import { createMemoryPersistence } from './persistence.js';
 
 const submitSchema = z.object({ url: z.string().min(1).max(2048) });
-export interface AppOptions { store?: AnalysisStore; persistence?: Persistence; queue?: QueuePublisher; resolve?: (identity: ReturnType<typeof normalizeGitHubRepository>) => Promise<RepositoryMetadata>; analyzerVersion?: string; }
+export interface SnapshotSourceReader { getManifest(snapshotId: string): Promise<ManifestEntry[]>; getSource(snapshotId: string, relativePath: string): Promise<{ path: string; content: string; language: string | null; bytes: number; lineCount: number }>; }
+export interface AppOptions { store?: AnalysisStore; persistence?: Persistence; queue?: QueuePublisher; resolve?: (identity: ReturnType<typeof normalizeGitHubRepository>) => Promise<RepositoryMetadata>; analyzerVersion?: string; sourceReader?: SnapshotSourceReader; }
+
+function normalizeSnapshotPath(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith('/') || trimmed.startsWith('\\')) throw new Error('Source paths must be relative to the repository root.');
+  const normalized = trimmed.replaceAll('\\', '/');
+  const parts = normalized.split('/');
+  if (parts.some((part) => part === '..' || part === '.' || !part)) throw new Error('Source paths must not contain traversal segments.');
+  return normalized;
+}
 
 export function createApp(options: AppOptions = {}) {
   const persistence = options.persistence ?? (options.store ? createMemoryPersistence(options.store) : undefined);
@@ -38,6 +48,35 @@ export function createApp(options: AppOptions = {}) {
   app.get('/repos/:owner/:name', async (request, reply) => { const params = request.params as { owner: string; name: string }; const canonical = `${params.owner.toLowerCase()}/${params.name.toLowerCase()}`; const repo = await persistence.getRepository(canonical); if (!repo) return reply.code(404).send({ error: 'not_found', message: 'Repository has not been submitted.' }); const snapshot = await persistence.getLatestSnapshot(repo.id, analyzerVersion); const job = snapshot ? await persistence.getJobForSnapshot(snapshot.id) : undefined; const analysis = snapshot ? await persistence.getAnalysis(snapshot.id, analyzerVersion, graphSchemaVersion) : undefined; return { repository: { ...repo, sha: snapshot?.sha ?? repo.sha }, snapshot, job, analysis }; });
   app.get('/jobs/:id', async (request, reply) => { const job = await persistence.getJob((request.params as { id: string }).id); return job ? job : reply.code(404).send({ error: 'not_found', message: 'Job not found.' }); });
   app.get('/snapshots/:id/analysis', async (request, reply) => { const analysis = await persistence.getAnalysis((request.params as { id: string }).id, analyzerVersion, graphSchemaVersion); return analysis ? analysis : reply.code(404).send({ error: 'not_found', message: 'Analysis has not been requested.' }); });
+  app.get('/snapshots/:id/manifest', async (request, reply) => {
+    const snapshotId = (request.params as { id: string }).id;
+    const snapshot = await persistence.getSnapshot(snapshotId);
+    if (!snapshot) return reply.code(404).send({ error: 'not_found', message: 'Snapshot not found.' });
+    if (!snapshot.manifest) return reply.code(200).send([]);
+    const manifest = Array.isArray(snapshot.manifest) ? snapshot.manifest as ManifestEntry[] : [];
+    return manifest;
+  });
+  app.get('/snapshots/:id/source', async (request, reply) => {
+    const snapshotId = (request.params as { id: string }).id;
+    if (!z.string().uuid().safeParse(snapshotId).success) return reply.code(404).send({ error: 'not_found', message: 'Snapshot not found.' });
+    const snapshot = await persistence.getSnapshot(snapshotId);
+    if (!snapshot) return reply.code(404).send({ error: 'not_found', message: 'Snapshot not found.' });
+    const rawPath = (request.query as { path?: string }).path;
+    if (!rawPath) return reply.code(400).send({ error: 'missing_path', message: 'path is required.' });
+    let relativePath: string;
+    try { relativePath = normalizeSnapshotPath(rawPath); } catch (error) { return reply.code(400).send({ error: 'invalid_path', message: (error as Error).message }); }
+    const supported = Array.isArray(snapshot.manifest) ? snapshot.manifest as ManifestEntry[] : [];
+    const manifestEntry = supported.find((entry) => entry.path === relativePath && entry.classification === 'source' && ['typescript', 'javascript'].includes(entry.language ?? ''));
+    if (!manifestEntry) return reply.code(400).send({ error: 'unsupported_file', message: 'Only TypeScript and JavaScript source files from the immutable snapshot can be viewed.' });
+    if (!options.sourceReader) return reply.code(501).send({ error: 'source_unavailable', message: 'Source content retrieval is not configured for this API deployment.' });
+    try {
+      const source = await options.sourceReader.getSource(snapshotId, relativePath);
+      return source;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load source content.';
+      return reply.code(404).send({ error: 'source_missing', message });
+    }
+  });
   app.get('/snapshots/:id/graph', async (request, reply) => {
     const params = request.params as { id: string };
     const rawLimit = Number((request.query as { limit?: string }).limit ?? 500);

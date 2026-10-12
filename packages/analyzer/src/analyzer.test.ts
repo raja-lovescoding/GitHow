@@ -25,4 +25,10 @@ describe('analyzeRepository', () => {
     expect(result.edges.some((edge) => edge.type === 'IMPORTS' && edge.resolution === 'resolved')).toBe(true);
     expect(result.edges.some((edge) => edge.type === 'EXPORTS')).toBe(true);
   });
+
+  it('captures direct symbol-to-symbol call relationships', () => {
+    const result = analyzeRepository({ snapshotId: 'snapshot-4', files: [{ path: 'src/index.ts', content: 'export function helper() { return 1; } export function main() { return helper(); }' }] });
+    expect(result.edges.some((edge) => edge.type === 'CALLS' && edge.resolution === 'resolved')).toBe(true);
+    expect(result.nodes.some((node) => node.type === 'symbol' && node.evidence?.name === 'main')).toBe(true);
+  });
 });
