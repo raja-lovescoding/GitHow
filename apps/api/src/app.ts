@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { normalizeGitHubRepository, type ManifestEntry } from '@gitflow/core';
-import { graphSchemaVersion } from '@gitflow/analyzer';
+import { assembleFlow, findFlowCandidates, graphSchemaVersion, type AnalysisResult } from '@gitflow/analyzer';
 import { createGitHubClient, resolveRepository, type RepositoryMetadata } from '@gitflow/github';
 import { z } from 'zod';
 import { AnalysisStore } from './store.js';
@@ -82,6 +82,27 @@ export function createApp(options: AppOptions = {}) {
     const rawLimit = Number((request.query as { limit?: string }).limit ?? 500);
     if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 5000) return reply.code(400).send({ error: 'invalid_limit', message: 'limit must be an integer between 1 and 5000.' });
     return persistence.getGraph(params.id, analyzerVersion, graphSchemaVersion, rawLimit);
+  });
+  app.get('/snapshots/:id/nodes/:nodeId/neighborhood', async (request, reply) => {
+    const params = request.params as { id: string; nodeId: string };
+    const rawLimit = Number((request.query as { limit?: string }).limit ?? 50);
+    if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 200) return reply.code(400).send({ error: 'invalid_limit', message: 'limit must be an integer between 1 and 200.' });
+    return persistence.getNodeNeighborhood(params.id, analyzerVersion, graphSchemaVersion, params.nodeId, rawLimit);
+  });
+  app.get('/snapshots/:id/flows', async (request, reply) => {
+    const snapshotId = (request.params as { id: string }).id;
+    const rawLimit = Number((request.query as { limit?: string }).limit ?? 100);
+    if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 100) return reply.code(400).send({ error: 'invalid_limit', message: 'limit must be an integer between 1 and 100.' });
+    const graphData = await persistence.getGraph(snapshotId, analyzerVersion, graphSchemaVersion, 5000) as { nodes?: AnalysisResult['nodes']; edges?: AnalysisResult['edges'] };
+    const graph: Pick<AnalysisResult, 'snapshotId' | 'nodes'> = { snapshotId, nodes: graphData?.nodes ?? [] };
+    return { snapshotId, candidates: findFlowCandidates(graph, rawLimit) };
+  });
+  app.get('/snapshots/:id/flows/:flowId', async (request, reply) => {
+    const params = request.params as { id: string; flowId: string };
+    const graphData = await persistence.getGraph(params.id, analyzerVersion, graphSchemaVersion, 5000) as { nodes?: AnalysisResult['nodes']; edges?: AnalysisResult['edges'] };
+    const graph: Pick<AnalysisResult, 'snapshotId' | 'analyzerVersion' | 'nodes' | 'edges'> = { snapshotId: params.id, analyzerVersion, nodes: graphData?.nodes ?? [], edges: graphData?.edges ?? [] };
+    const flow = assembleFlow(graph, params.flowId);
+    return flow ? flow : reply.code(404).send({ error: 'not_found', message: 'Flow candidate not found for this snapshot.' });
   });
   return app;
 }

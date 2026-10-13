@@ -1,8 +1,8 @@
 export const graphSchemaVersion = 'rig-v1';
 export const analyzerVersion = 'syntax-v1';
 
-export type NodeType = 'snapshot' | 'file' | 'symbol' | 'module';
-export type EdgeType = 'CONTAINS' | 'IMPORTS' | 'EXPORTS' | 'DECLARES' | 'CALLS' | 'EXTENDS' | 'IMPLEMENTS';
+export type NodeType = 'snapshot' | 'file' | 'symbol' | 'module' | 'route';
+export type EdgeType = 'CONTAINS' | 'IMPORTS' | 'EXPORTS' | 'DECLARES' | 'CALLS' | 'EXTENDS' | 'IMPLEMENTS' | 'ROUTE_HANDLER' | 'MIDDLEWARE' | 'MOUNTS';
 export type ResolutionStatus = 'resolved' | 'unresolved' | 'observed';
 
 export interface SourceEvidence {
@@ -13,6 +13,7 @@ export interface SourceEvidence {
   endColumn: number;
   name?: string;
   reason?: string;
+  attributes?: Record<string, string | number | boolean>;
 }
 
 export interface GraphNode {

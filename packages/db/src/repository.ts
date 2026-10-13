@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, or } from 'drizzle-orm';
 import type { RepoIdentity, SnapshotStatus, JobStage } from '@gitflow/core';
 import { analysisRuns, graphEdges, graphNodes, jobs, repositories, snapshots } from './schema.js';
 import type { AnalysisResult, GraphEdge, GraphNode } from '@gitflow/analyzer';
@@ -98,4 +98,34 @@ export async function getGraph(db: Database, snapshotId: string, analyzerVersion
   const nodes: GraphNode[] = nodeRows.map((node) => ({ id: node.id, type: node.nodeType as GraphNode['type'], snapshotId: node.snapshotId, analyzerVersion: node.analyzerVersion, key: node.nodeKey, evidence: node.evidence as GraphNode['evidence'] }));
   const edges: GraphEdge[] = edgeRows.map((edge) => ({ id: edge.id, type: edge.edgeType as GraphEdge['type'], snapshotId: edge.snapshotId, analyzerVersion: edge.analyzerVersion, from: edge.fromNodeId, to: edge.toNodeId, resolution: edge.resolution as GraphEdge['resolution'], evidence: edge.evidence as GraphEdge['evidence'] }));
   return { analysis: run, nodes, edges };
+}
+
+export async function getNodeNeighborhood(db: Database, snapshotId: string, analyzerVersion: string, schemaVersion: string, nodeId: string, limit = 50): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
+  const edgeRows = await db.select().from(graphEdges).where(
+    and(
+      eq(graphEdges.snapshotId, snapshotId),
+      eq(graphEdges.analyzerVersion, analyzerVersion),
+      eq(graphEdges.schemaVersion, schemaVersion),
+      or(eq(graphEdges.fromNodeId, nodeId), eq(graphEdges.toNodeId, nodeId))
+    )
+  ).limit(limit);
+
+  const nodeIds = new Set<string>([nodeId]);
+  for (const edge of edgeRows) {
+    nodeIds.add(edge.fromNodeId);
+    nodeIds.add(edge.toNodeId);
+  }
+
+  const nodeRows = nodeIds.size > 0 ? await db.select().from(graphNodes).where(
+    and(
+      eq(graphNodes.snapshotId, snapshotId),
+      eq(graphNodes.analyzerVersion, analyzerVersion),
+      eq(graphNodes.schemaVersion, schemaVersion),
+      inArray(graphNodes.id, [...nodeIds])
+    )
+  ) : [];
+
+  const nodes: GraphNode[] = nodeRows.map((node) => ({ id: node.id, type: node.nodeType as GraphNode['type'], snapshotId: node.snapshotId, analyzerVersion: node.analyzerVersion, key: node.nodeKey, evidence: node.evidence as GraphNode['evidence'] }));
+  const edges: GraphEdge[] = edgeRows.map((edge) => ({ id: edge.id, type: edge.edgeType as GraphEdge['type'], snapshotId: edge.snapshotId, analyzerVersion: edge.analyzerVersion, from: edge.fromNodeId, to: edge.toNodeId, resolution: edge.resolution as GraphEdge['resolution'], evidence: edge.evidence as GraphEdge['evidence'] }));
+  return { nodes, edges };
 }

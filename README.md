@@ -61,6 +61,14 @@ The analyzer consumes an immutable snapshot identity and supported source files,
 
 Graph records are persisted in `analysis_runs`, `graph_nodes`, and `graph_edges`; `packages/db/drizzle/0003_rig_foundation.sql` is the migration. IDs are SHA-256 hashes of the graph schema version, snapshot ID, record type, stable key, and (for edges) source evidence, so processing order and local filesystem paths cannot change them. The API exposes bounded graph reads at `GET /snapshots/:id/graph?limit=500`.
 
+### GitFlow application flows
+
+The analyzer recognizes source-backed Express entrypoints when it sees an Express import or `require` and a receiver created by `express()` or `express.Router()`. Supported registrations are `get`, `post`, `put`, `patch`, `delete`, `all`, and `use`, including literal or top-level string constants, route-level middleware, named local handlers, and inline callbacks. Each route, middleware association, and handler relationship is persisted in the same RIG with source evidence and a resolution status.
+
+`GET /snapshots/:id/flows` lists deterministic route candidates from that immutable snapshot. `GET /snapshots/:id/flows/:flow-id` assembles a bounded flow by following ordered route relationships and resolved `CALLS` edges. The web explorer lets users select an entrypoint and source-backed step. `observed` means a construct was directly found in source, `resolved` means a target declaration was linked, and `unresolved` means a plausible target could not be linked.
+
+Static analysis does not execute repositories or prove runtime order. Dynamic route registration, nested cross-file mount-prefix composition, reflection, dependency injection, conditional behavior, and framework adapters other than Express remain unsupported or explicitly unresolved. Traversal is bounded to eight call levels, six outgoing relationships per node, and eighty steps.
+
 ### Phase 3 acceptance checklist
 
 After `pnpm infra:up` and `pnpm db:migrate`, start the API, worker, and web processes in separate terminals with the commands above. Submit a small public GitHub TypeScript/JavaScript repository to `POST http://localhost:4000/repos` using `{"url":"https://github.com/owner/repo"}`. Poll the returned snapshot with `GET /repos/:owner/:repo` until the ingestion job is `completed` and the snapshot is `ready`, then poll `GET /snapshots/:snapshot-id/analysis` until it is `completed`. Retrieve bounded results with `GET /snapshots/:snapshot-id/graph?limit=500` and confirm non-zero source-backed nodes and edges. Repeat the repository submission to verify reuse, restart the API and worker, and confirm the completed analysis and graph remain available. For retry behavior, use the deterministic malformed-archive and extraction-failure fixtures covered by the worker/integration tests; never execute code from the analyzed repository.
