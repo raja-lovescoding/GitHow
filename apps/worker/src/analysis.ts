@@ -17,7 +17,7 @@ export async function runAnalysisJob(raw: unknown, dependencies: AnalysisRunnerD
   const manifest = manifestEntrySchema.array().parse(JSON.parse((await dependencies.getObject(payload.manifestKey)).toString('utf8')));
   const files = await extractSourceFiles(await dependencies.getObject(payload.archiveKey), manifest);
   await dependencies.updateStatus(payload.snapshotId, payload.analyzerVersion, payload.schemaVersion, { progress: 65 });
-  const result = analyzeRepository({ snapshotId: payload.snapshotId, files, manifest, analyzerVersion: payload.analyzerVersion });
+  const result = await analyzeRepository({ snapshotId: payload.snapshotId, files, manifest, analyzerVersion: payload.analyzerVersion });
   await dependencies.persist(result);
   return 'completed';
 }

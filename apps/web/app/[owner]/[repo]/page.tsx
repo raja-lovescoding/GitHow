@@ -407,7 +407,7 @@ export default function RepositoryPage() {
                 ))}
               </div>
             ) : (
-              <p className="empty-copy">No statically recognized Express entrypoints were found.</p>
+              <p className="empty-copy">No statically recognized application entrypoints were found.</p>
             )}
 
             {flow ? (

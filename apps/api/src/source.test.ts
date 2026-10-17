@@ -52,4 +52,32 @@ describe('snapshot source reader', () => {
     await expect(validReader.getSource('snapshot-1', '../escape.ts')).rejects.toThrow('traversal');
     await expect(reader.getSource('snapshot-1', 'src/index.ts')).rejects.toThrow('hash');
   });
+
+  it('supports reading multi-language source files and rejects binary files', async () => {
+    const pyContent = 'def hello():\n    return "world"\n';
+    const pyHash = createHash('sha256').update(pyContent).digest('hex');
+    const pack = tar.pack();
+    pack.entry({ name: 'repo-root/main.py', type: 'file' }, pyContent);
+    pack.entry({ name: 'repo-root/logo.png', type: 'file' }, 'binary-bytes');
+    pack.finalize();
+    const chunks: Buffer[] = [];
+    const archiveBuffer = await new Promise<Buffer>((resolve, reject) => {
+      pack.on('data', (chunk) => chunks.push(chunk as Buffer));
+      pack.on('end', () => resolve(gzipSync(Buffer.concat(chunks))));
+      pack.on('error', reject);
+    });
+
+    const manifest = JSON.stringify([
+      { path: 'main.py', size: Buffer.byteLength(pyContent), sha256: pyHash, extension: '.py', language: 'python', classification: 'source' },
+      { path: 'logo.png', size: 12, sha256: createHash('sha256').update('binary-bytes').digest('hex'), extension: '.png', language: null, classification: 'binary' },
+    ]);
+
+    const reader = createSnapshotSourceReader({
+      storage: { get: async (key: string) => key.endsWith('manifest.json') ? Buffer.from(manifest) : archiveBuffer } as never,
+      getSnapshot: async () => ({ id: 'snapshot-2', archiveKey: 'archive.tar.gz', manifestKey: 'manifest.json', manifest: [] }),
+    });
+
+    await expect(reader.getSource('snapshot-2', 'main.py')).resolves.toMatchObject({ path: 'main.py', content: pyContent, language: 'python' });
+    await expect(reader.getSource('snapshot-2', 'logo.png')).rejects.toThrow('Binary file cannot be viewed as text');
+  });
 });

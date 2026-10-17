@@ -161,9 +161,15 @@ importers:
       '@gitflow/core':
         specifier: workspace:*
         version: link:../core
+      tree-sitter-wasms:
+        specifier: ^0.1.13
+        version: 0.1.13
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
+      web-tree-sitter:
+        specifier: 0.20.8
+        version: 0.20.8
     devDependencies:
       '@types/node':
         specifier: ^22.15.0
@@ -2186,6 +2192,9 @@ packages:
     resolution: {integrity: sha512-m1TdR/rvT7kgGJZhspNtXdsdYk0fddFpJJFlG5s+UkPFo6lkLoZ3YLOaovPYjq1R75NP5JfeTlSHaOsE09peCg==}
     engines: {node: '>=20'}
 
+  tree-sitter-wasms@0.1.13:
+    resolution: {integrity: sha512-wT+cR6DwaIz80/vho3AvSF0N4txuNx/5bcRKoXouOfClpxh/qqrF4URNLQXbbt8MaAxeksZcZd1j8gcGjc+QxQ==}
+
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
@@ -2293,6 +2302,9 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  web-tree-sitter@0.20.8:
+    resolution: {integrity: sha512-weOVgZ3aAARgdnb220GqYuh7+rZU0Ka9k9yfKtGAzEYMa6GgiCzW9JjQRJyCJakvibQW+dfjJdihjInKuuCAUQ==}
 
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
@@ -4001,6 +4013,8 @@ snapshots:
 
   toad-cache@3.7.4: {}
 
+  tree-sitter-wasms@0.1.13: {}
+
   tslib@2.8.1: {}
 
   tsx@4.23.15:
@@ -4108,6 +4122,8 @@ snapshots:
       - terser
       - tsx
       - yaml
+
+  web-tree-sitter@0.20.8: {}
 
   why-is-node-running@2.3.0:
     dependencies:

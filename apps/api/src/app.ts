@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { normalizeGitHubRepository, type ManifestEntry } from '@gitflow/core';
+import { isBinaryExtension } from '@gitflow/ingest';
 import { assembleFlow, findFlowCandidates, graphSchemaVersion, type AnalysisResult } from '@gitflow/analyzer';
 import { createGitHubClient, resolveRepository, type RepositoryMetadata } from '@gitflow/github';
 import { z } from 'zod';
@@ -66,8 +67,14 @@ export function createApp(options: AppOptions = {}) {
     let relativePath: string;
     try { relativePath = normalizeSnapshotPath(rawPath); } catch (error) { return reply.code(400).send({ error: 'invalid_path', message: (error as Error).message }); }
     const supported = Array.isArray(snapshot.manifest) ? snapshot.manifest as ManifestEntry[] : [];
-    const manifestEntry = supported.find((entry) => entry.path === relativePath && entry.classification === 'source' && ['typescript', 'javascript'].includes(entry.language ?? ''));
-    if (!manifestEntry) return reply.code(400).send({ error: 'unsupported_file', message: 'Only TypeScript and JavaScript source files from the immutable snapshot can be viewed.' });
+    const manifestEntry = supported.find((entry) => entry.path === relativePath);
+    if (!manifestEntry) return reply.code(404).send({ error: 'not_found', message: `File not found in repository manifest: ${relativePath}` });
+    if (manifestEntry.classification === 'binary' || isBinaryExtension(manifestEntry.extension)) {
+      return reply.code(400).send({ error: 'binary_file', message: 'Binary files cannot be viewed as text.' });
+    }
+    if (manifestEntry.size > 5 * 1024 * 1024) {
+      return reply.code(400).send({ error: 'file_too_large', message: 'File exceeds maximum viewable size of 5MB.' });
+    }
     if (!options.sourceReader) return reply.code(501).send({ error: 'source_unavailable', message: 'Source content retrieval is not configured for this API deployment.' });
     try {
       const source = await options.sourceReader.getSource(snapshotId, relativePath);

@@ -72,14 +72,54 @@ export function assembleFlow(graph: Pick<AnalysisResult, 'snapshotId' | 'analyze
     steps.push({ id: `${candidate.id}:step:${steps.length}`, nodeId, type: node.type, role, label: node.evidence?.name ?? node.key, resolution, evidence: node.evidence });
     const next = outgoing.get(nodeId) ?? [];
     for (const edge of next.slice(0, limits.maxFanOut)) {
-      if (edge.type !== 'ROUTE_HANDLER' && edge.type !== 'MIDDLEWARE' && edge.type !== 'CALLS') continue;
+      if (
+        edge.type !== 'ROUTE_HANDLER' &&
+        edge.type !== 'MIDDLEWARE' &&
+        edge.type !== 'DEPENDS_ON' &&
+        edge.type !== 'HOOK' &&
+        edge.type !== 'PLUGIN' &&
+        edge.type !== 'MOUNTS' &&
+        edge.type !== 'CALLS'
+      ) continue;
       const target = nodeById.get(edge.to);
-      if (!target) continue;
       relationships.push({ id: edge.id, from: nodeId, to: edge.to, type: edge.type, resolution: edge.resolution, evidence: edge.evidence });
-      walk(edge.to, depth + 1, edge.type === 'CALLS' ? 'downstream' : edge.type === 'MIDDLEWARE' ? 'middleware' : 'handler', edge.resolution);
+      let nextRole = 'downstream';
+      if (edge.type === 'ROUTE_HANDLER') nextRole = 'handler';
+      else if (edge.type === 'MIDDLEWARE') nextRole = 'middleware';
+      else if (edge.type === 'DEPENDS_ON') nextRole = 'dependency';
+      else if (edge.type === 'HOOK') nextRole = 'hook';
+      else if (edge.type === 'PLUGIN') nextRole = 'plugin';
+      else if (edge.type === 'MOUNTS') nextRole = 'mount';
+
+      if (target) {
+        walk(edge.to, depth + 1, nextRole, edge.resolution);
+      } else {
+        // Even if target node object is missing from nodeById, record an unresolved step
+        steps.push({
+          id: `${candidate.id}:step:${steps.length}`,
+          nodeId: edge.to,
+          type: 'symbol',
+          role: nextRole,
+          label: edge.evidence?.name ?? edge.to,
+          resolution: edge.resolution,
+          evidence: edge.evidence,
+        });
+      }
     }
     if (next.length > limits.maxFanOut) truncated = true;
   };
   walk(candidate.nodeId, 0, 'entrypoint', 'observed');
-  return { id: candidate.id, snapshotId: graph.snapshotId, candidate, steps, relationships, truncated, limitations: ['Static CALLS edges do not prove runtime execution on every request.', 'Dynamic registration, reflection, and dependency injection remain unresolved.'] };
+  return {
+    id: candidate.id,
+    snapshotId: graph.snapshotId,
+    candidate,
+    steps,
+    relationships,
+    truncated,
+    limitations: [
+      'Static CALLS edges do not prove runtime execution on every request.',
+      'Dynamic registration, runtime reflection, and dynamic dispatch remain unresolved.',
+      'Conditional middleware, decorators, or hooks may not execute on every request path.',
+    ],
+  };
 }

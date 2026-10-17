@@ -26,7 +26,10 @@ describe('PostgreSQL persistence integration', () => {
         { id: `node2-${process.pid}`, type: 'file' as const, snapshotId: submission.snapshot.id, analyzerVersion, key: 'file.ts' },
       ],
       edges: [
-        { id: `edge-${process.pid}`, type: 'CONTAINS' as const, snapshotId: submission.snapshot.id, analyzerVersion, from: `node-${process.pid}`, to: `node2-${process.pid}`, resolution: 'observed' as const, evidence: { path: 'file.ts', startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 } },
+        { id: `edge-contains-${process.pid}`, type: 'CONTAINS' as const, snapshotId: submission.snapshot.id, analyzerVersion, from: `node-${process.pid}`, to: `node2-${process.pid}`, resolution: 'observed' as const, evidence: { path: 'file.ts', startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 } },
+        { id: `edge-depends-${process.pid}`, type: 'DEPENDS_ON' as const, snapshotId: submission.snapshot.id, analyzerVersion, from: `node2-${process.pid}`, to: `node2-${process.pid}`, resolution: 'resolved' as const, evidence: { path: 'file.ts', startLine: 5, startColumn: 1, endLine: 5, endColumn: 10, name: 'dep' } },
+        { id: `edge-hook-${process.pid}`, type: 'HOOK' as const, snapshotId: submission.snapshot.id, analyzerVersion, from: `node2-${process.pid}`, to: `node2-${process.pid}`, resolution: 'resolved' as const, evidence: { path: 'file.ts', startLine: 10, startColumn: 1, endLine: 10, endColumn: 15, name: 'hook' } },
+        { id: `edge-plugin-${process.pid}`, type: 'PLUGIN' as const, snapshotId: submission.snapshot.id, analyzerVersion, from: `node2-${process.pid}`, to: `node2-${process.pid}`, resolution: 'resolved' as const, evidence: { path: 'file.ts', startLine: 15, startColumn: 1, endLine: 15, endColumn: 20, name: 'plugin' } },
       ],
       diagnostics: [],
     };
@@ -35,7 +38,10 @@ describe('PostgreSQL persistence integration', () => {
     await expect(getAnalysis(db, submission.snapshot.id, analyzerVersion, graphSchemaVersion)).resolves.toMatchObject({ status: 'completed', progress: 100 });
     const graph = await getGraph(db, submission.snapshot.id, analyzerVersion, graphSchemaVersion);
     expect(graph.nodes.some((n) => n.id === `node-${process.pid}`)).toBe(true);
-    expect(graph.edges.some((e) => e.id === `edge-${process.pid}`)).toBe(true);
+    expect(graph.edges.some((e) => e.id === `edge-contains-${process.pid}`)).toBe(true);
+    expect(graph.edges.some((e) => e.id === `edge-depends-${process.pid}` && e.type === 'DEPENDS_ON')).toBe(true);
+    expect(graph.edges.some((e) => e.id === `edge-hook-${process.pid}` && e.type === 'HOOK')).toBe(true);
+    expect(graph.edges.some((e) => e.id === `edge-plugin-${process.pid}` && e.type === 'PLUGIN')).toBe(true);
     const neighborhood = await getNodeNeighborhood(db, submission.snapshot.id, analyzerVersion, graphSchemaVersion, `node-${process.pid}`);
     expect(neighborhood.nodes).toHaveLength(2);
     expect(neighborhood.edges).toHaveLength(1);

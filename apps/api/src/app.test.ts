@@ -59,4 +59,31 @@ describe('API contracts', () => {
     const badLimit = await app.inject({ method: 'GET', url: '/snapshots/snap-1/nodes/node-1/neighborhood?limit=500' });
     expect(badLimit.statusCode).toBe(400);
   });
+
+  it('assembles discovered flows with dependency, hook, and plugin relationships', async () => {
+    const store = new AnalysisStore();
+    const mockPersistence = {
+      ...createMemoryPersistence(store),
+      getGraph: async () => ({
+        nodes: [
+          { id: 'route-fastapi', type: 'route', key: 'app.py:1:GET:/items', snapshotId: 'snap-2', analyzerVersion: 'v1', evidence: { path: 'app.py', startLine: 1, startColumn: 1, endLine: 1, endColumn: 20, attributes: { method: 'GET', path: '/items', framework: 'fastapi', kind: 'endpoint' } } },
+          { id: 'handler-fastapi', type: 'symbol', key: 'read_items', snapshotId: 'snap-2', analyzerVersion: 'v1', evidence: { path: 'app.py', startLine: 2, startColumn: 1, endLine: 4, endColumn: 20, name: 'read_items' } },
+          { id: 'dep-db', type: 'symbol', key: 'get_db', snapshotId: 'snap-2', analyzerVersion: 'v1', evidence: { path: 'deps.py', startLine: 1, startColumn: 1, endLine: 3, endColumn: 10, name: 'get_db' } },
+        ],
+        edges: [
+          { id: 'edge-handler', type: 'ROUTE_HANDLER', from: 'route-fastapi', to: 'handler-fastapi', resolution: 'resolved', snapshotId: 'snap-2', analyzerVersion: 'v1', evidence: { path: 'app.py', startLine: 1, startColumn: 1, endLine: 1, endColumn: 20 } },
+          { id: 'edge-dep', type: 'DEPENDS_ON', from: 'handler-fastapi', to: 'dep-db', resolution: 'resolved', snapshotId: 'snap-2', analyzerVersion: 'v1', evidence: { path: 'app.py', startLine: 2, startColumn: 1, endLine: 2, endColumn: 30, name: 'Depends(get_db)' } },
+        ],
+      }),
+    };
+    const app = createApp({ store, persistence: mockPersistence as never, queue: { publish: async () => undefined } });
+    const listResponse = await app.inject({ method: 'GET', url: '/snapshots/snap-2/flows' });
+    expect(listResponse.statusCode).toBe(200);
+    const candidate = listResponse.json().candidates[0];
+    const detailResponse = await app.inject({ method: 'GET', url: `/snapshots/snap-2/flows/${candidate.id}` });
+    expect(detailResponse.statusCode).toBe(200);
+    const flowData = detailResponse.json();
+    expect(flowData.steps.some((s: { role: string; label: string }) => s.role === 'dependency' && s.label === 'get_db')).toBe(true);
+    expect(flowData.relationships.some((r: { type: string }) => r.type === 'DEPENDS_ON')).toBe(true);
+  });
 });

@@ -22,6 +22,22 @@ Reserved product paths include `/about`, `/pricing`, `/docs`, `/api`, `/_next`, 
 
 Requirements: Node 22+, pnpm 10+, and Docker Desktop.
 
+### Windows Quickstart (One-Click)
+
+Simply double-click or run [start.bat](file:///c:/Users/raja2/OneDrive/Pictures/Documents/Repository%20intelligence/GitHow/start.bat) in the root directory. It automatically:
+
+1. Verifies Docker Desktop and `pnpm` are installed and running.
+2. Creates `.env` from `.env.example` if not already present.
+3. Installs dependencies (`pnpm install`).
+4. Starts PostgreSQL and RustFS object storage (`pnpm infra:up`).
+5. Waits for PostgreSQL to be healthy and ready for connections.
+6. Runs database migrations (`pnpm db:migrate`).
+7. Starts the frontend (Next.js), backend (Fastify), and worker dev servers together via Turborepo (`pnpm dev`).
+
+To stop all background infrastructure containers, run [stop.bat](file:///c:/Users/raja2/OneDrive/Pictures/Documents/Repository%20intelligence/GitHow/stop.bat).
+
+### Manual setup
+
 ```powershell
 pnpm install
 Copy-Item .env.example .env

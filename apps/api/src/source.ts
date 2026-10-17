@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import tar from 'tar-stream';
 import type { ManifestEntry } from '@gitflow/core';
+import { isBinaryExtension } from '@gitflow/ingest';
 import type { ObjectStorage } from '@gitflow/storage';
 
 export interface SnapshotRecordLike {
@@ -84,8 +85,14 @@ export function createSnapshotSourceReader({ storage, getSnapshot }: { storage: 
       if (!snapshot || !snapshot.archiveKey || !snapshot.manifestKey) throw new Error('Source could not be resolved for this snapshot.');
       const relative = safeRelativePath(relativePath);
       const manifest = JSON.parse((await storage.get(snapshot.manifestKey)).toString('utf8')) as ManifestEntry[];
-      const match = manifest.find((entry) => entry.path === relative && entry.classification === 'source' && ['typescript', 'javascript'].includes(entry.language ?? ''));
-      if (!match) throw new Error('Only TypeScript and JavaScript source files from the immutable snapshot can be viewed.');
+      const match = manifest.find((entry) => entry.path === relative);
+      if (!match) throw new Error(`Source file not found in repository manifest: ${relative}`);
+      if (match.classification === 'binary' || isBinaryExtension(match.extension)) {
+        throw new Error(`Binary file cannot be viewed as text: ${relative}`);
+      }
+      if (match.size > 5 * 1024 * 1024) {
+        throw new Error(`File exceeds maximum viewable size of 5MB: ${relative}`);
+      }
       const archive = await storage.get(snapshot.archiveKey);
       const content = await readArchiveTarget(archive, relative, match.size, match.sha256);
       return { path: relative, content, language: match.language, bytes: match.size, lineCount: content.split(/\r?\n/).length };

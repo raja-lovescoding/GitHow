@@ -7,15 +7,123 @@ import type { ManifestEntry } from '@gitflow/core';
 export interface ArchiveLimits { maxArchiveBytes: number; maxExtractedBytes: number; maxFiles: number; maxFileBytes: number; }
 export const defaultArchiveLimits: ArchiveLimits = { maxArchiveBytes: 250 * 1024 * 1024, maxExtractedBytes: 500 * 1024 * 1024, maxFiles: 100_000, maxFileBytes: 25 * 1024 * 1024 };
 
-const languageByExtension: Record<string, string> = { '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.json': 'json', '.css': 'css', '.md': 'markdown' };
-const ignoredDirectories = new Set(['node_modules', 'dist', 'build', '.git', 'coverage', 'vendor']);
+export const languageByExtension: Record<string, string> = {
+  // TypeScript & JavaScript
+  '.ts': 'typescript',
+  '.tsx': 'typescript',
+  '.mts': 'typescript',
+  '.cts': 'typescript',
+  '.js': 'javascript',
+  '.jsx': 'javascript',
+  '.mjs': 'javascript',
+  '.cjs': 'javascript',
+  // Python
+  '.py': 'python',
+  '.pyi': 'python',
+  '.pyw': 'python',
+  // Systems languages
+  '.go': 'go',
+  '.rs': 'rust',
+  '.c': 'c',
+  '.h': 'c',
+  '.cpp': 'cpp',
+  '.cc': 'cpp',
+  '.cxx': 'cpp',
+  '.hpp': 'cpp',
+  '.hh': 'cpp',
+  '.hxx': 'cpp',
+  // JVM
+  '.java': 'java',
+  '.kt': 'kotlin',
+  '.kts': 'kotlin',
+  '.scala': 'scala',
+  '.groovy': 'groovy',
+  // Other popular languages
+  '.cs': 'csharp',
+  '.rb': 'ruby',
+  '.php': 'php',
+  '.swift': 'swift',
+  '.dart': 'dart',
+  '.lua': 'lua',
+  '.sh': 'shell',
+  '.bash': 'shell',
+  '.zsh': 'shell',
+  '.sql': 'sql',
+  // Web & markup & styles
+  '.html': 'html',
+  '.htm': 'html',
+  '.css': 'css',
+  '.scss': 'scss',
+  '.sass': 'sass',
+  '.less': 'less',
+  '.json': 'json',
+  '.json5': 'json5',
+  '.yaml': 'yaml',
+  '.yml': 'yaml',
+  '.toml': 'toml',
+  '.md': 'markdown',
+  '.markdown': 'markdown',
+  '.xml': 'xml',
+  '.graphql': 'graphql',
+  '.gql': 'graphql',
+  '.proto': 'protobuf',
+};
 
-export function classifyPath(path: string): ManifestEntry['classification'] {
+export const binaryExtensions = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.tiff', '.avif',
+  '.woff', '.woff2', '.ttf', '.eot', '.otf',
+  '.zip', '.tar', '.gz', '.tgz', '.bz2', '.xz', '.7z', '.rar',
+  '.pdf', '.wasm', '.exe', '.dll', '.so', '.dylib', '.bin',
+  '.pyc', '.pyo', '.class', '.o', '.a', '.obj',
+  '.mp3', '.mp4', '.wav', '.ogg', '.webm', '.mov', '.avi',
+  '.jar', '.war', '.ear',
+]);
+
+const wellKnownFilenames: Record<string, { language: string | null; classification: ManifestEntry['classification'] }> = {
+  'dockerfile': { language: 'dockerfile', classification: 'source' },
+  'containerfile': { language: 'dockerfile', classification: 'source' },
+  'makefile': { language: 'makefile', classification: 'source' },
+  'gemfile': { language: 'ruby', classification: 'source' },
+  'rakefile': { language: 'ruby', classification: 'source' },
+  'cmakelists.txt': { language: 'cmake', classification: 'source' },
+  'package.json': { language: 'json', classification: 'source' },
+  'tsconfig.json': { language: 'json', classification: 'source' },
+  'cargo.toml': { language: 'toml', classification: 'source' },
+  'pyproject.toml': { language: 'toml', classification: 'source' },
+  'go.mod': { language: 'go', classification: 'source' },
+  'go.sum': { language: null, classification: 'irrelevant' },
+  'cargo.lock': { language: null, classification: 'irrelevant' },
+  'package-lock.json': { language: 'json', classification: 'irrelevant' },
+  'pnpm-lock.yaml': { language: 'yaml', classification: 'irrelevant' },
+  'yarn.lock': { language: null, classification: 'irrelevant' },
+};
+
+const ignoredDirectories = new Set(['node_modules', 'dist', 'build', '.git', 'coverage', 'vendor', '.next', '.turbo', '.venv', 'venv', 'target', '__pycache__']);
+
+export function isBinaryExtension(extension: string): boolean {
+  return binaryExtensions.has(extension.toLowerCase());
+}
+
+export function classifyPath(path: string, extension = ''): ManifestEntry['classification'] {
   const lower = path.toLowerCase();
-  if (ignoredDirectories.has(lower.split('/')[0] ?? '') || lower.includes('/node_modules/')) return 'vendor';
-  if (lower.endsWith('.min.js') || lower.endsWith('.map') || lower.includes('/generated/')) return 'generated';
-  if (lower.endsWith('.lock') || lower.endsWith('.log') || lower.startsWith('.github/')) return 'irrelevant';
+  const filename = lower.split('/').pop() ?? '';
+  if (wellKnownFilenames[filename]?.classification) {
+    return wellKnownFilenames[filename].classification;
+  }
+  const ext = extension || (path.includes('.') ? `.${path.split('.').pop()!.toLowerCase()}` : '');
+  if (isBinaryExtension(ext)) return 'binary';
+  if (ignoredDirectories.has(lower.split('/')[0] ?? '') || lower.includes('/node_modules/') || lower.includes('/vendor/')) return 'vendor';
+  if (lower.endsWith('.min.js') || lower.endsWith('.min.css') || lower.endsWith('.map') || lower.includes('/generated/') || lower.includes('/dist/') || lower.includes('/build/')) return 'generated';
+  if (lower.endsWith('.lock') || lower.endsWith('.log') || lower.startsWith('.github/') || filename === '.ds_store' || filename === '.gitignore') return 'irrelevant';
   return 'source';
+}
+
+function detectLanguage(path: string, extension: string): string | null {
+  const filename = path.split('/').pop()?.toLowerCase() ?? '';
+  if (wellKnownFilenames[filename]?.language !== undefined) {
+    return wellKnownFilenames[filename].language;
+  }
+  return languageByExtension[extension] ?? null;
 }
 
 function safePath(rawPath: string): string {
@@ -45,7 +153,7 @@ export async function buildManifest(archive: Buffer, limits: ArchiveLimits = def
       for await (const chunk of stream) { size += (chunk as Buffer).length; extractedBytes += (chunk as Buffer).length; if (extractedBytes > limits.maxExtractedBytes) throw new Error('Repository exceeds the extracted-size limit.'); chunks.push(chunk as Buffer); }
       const content = Buffer.concat(chunks);
       const extension = path.includes('.') ? `.${path.split('.').pop()!.toLowerCase()}` : '';
-      entries.push({ path, size, sha256: createHash('sha256').update(content).digest('hex'), extension, language: languageByExtension[extension] ?? null, classification: classifyPath(path) });
+      entries.push({ path, size, sha256: createHash('sha256').update(content).digest('hex'), extension, language: detectLanguage(path, extension), classification: classifyPath(path, extension) });
       next();
     })().catch((error) => extract.destroy(error));
   });
@@ -57,9 +165,21 @@ export async function buildManifest(archive: Buffer, limits: ArchiveLimits = def
 
 export interface ExtractedSourceFile { path: string; content: string; }
 
-export async function extractSourceFiles(archive: Buffer, manifest: readonly ManifestEntry[], limits: ArchiveLimits = defaultArchiveLimits): Promise<ExtractedSourceFile[]> {
+export const supportedSourceLanguages = new Set(['typescript', 'javascript', 'python', 'go', 'rust']);
+
+export function isSupportedSourceEntry(entry: ManifestEntry): boolean {
+  return entry.classification === 'source' && entry.language !== null && supportedSourceLanguages.has(entry.language);
+}
+
+export async function extractSourceFiles(
+  archive: Buffer,
+  manifest: readonly ManifestEntry[],
+  limits: ArchiveLimits = defaultArchiveLimits,
+  filter?: (entry: ManifestEntry) => boolean,
+): Promise<ExtractedSourceFile[]> {
   if (archive.byteLength > limits.maxArchiveBytes) throw new Error('Repository archive exceeds the configured download limit.');
-  const expected = new Map(manifest.filter((entry) => entry.classification === 'source' && entry.language && ['typescript', 'javascript'].includes(entry.language)).map((entry) => [entry.path, entry]));
+  const isTarget = filter ?? isSupportedSourceEntry;
+  const expected = new Map(manifest.filter(isTarget).map((entry) => [entry.path, entry]));
   const files = new Map<string, ExtractedSourceFile>();
   const extract = tar.extract();
   let extractedBytes = 0;
