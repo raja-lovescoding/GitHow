@@ -86,4 +86,53 @@ describe('API contracts', () => {
     expect(flowData.steps.some((s: { role: string; label: string }) => s.role === 'dependency' && s.label === 'get_db')).toBe(true);
     expect(flowData.relationships.some((r: { type: string }) => r.type === 'DEPENDS_ON')).toBe(true);
   });
+
+  it('supports flow view selector: control, data, all, and rejects invalid view', async () => {
+    const store = new AnalysisStore();
+    const mockPersistence = {
+      ...createMemoryPersistence(store),
+      getGraph: async () => ({
+        nodes: [
+          { id: 'route-1', type: 'route', key: 'app.ts:1:GET:/user', snapshotId: 'snap-view', analyzerVersion: 'v1', evidence: { path: 'app.ts', startLine: 1, startColumn: 1, endLine: 1, endColumn: 20, attributes: { method: 'GET', path: '/user', kind: 'endpoint' } } },
+          { id: 'handler-1', type: 'symbol', key: 'getUser', snapshotId: 'snap-view', analyzerVersion: 'v1', evidence: { path: 'app.ts', startLine: 2, startColumn: 1, endLine: 5, endColumn: 20, name: 'getUser' } },
+          { id: 'param-1', type: 'symbol', key: 'userId', snapshotId: 'snap-view', analyzerVersion: 'v1', evidence: { path: 'app.ts', startLine: 2, startColumn: 10, endLine: 2, endColumn: 16, name: 'userId', attributes: { kind: 'parameter' } } },
+          { id: 'downstream-1', type: 'symbol', key: 'fetchUser', snapshotId: 'snap-view', analyzerVersion: 'v1', evidence: { path: 'app.ts', startLine: 6, startColumn: 1, endLine: 8, endColumn: 20, name: 'fetchUser' } },
+        ],
+        edges: [
+          { id: 'edge-handler', type: 'ROUTE_HANDLER', from: 'route-1', to: 'handler-1', resolution: 'resolved', snapshotId: 'snap-view', analyzerVersion: 'v1', evidence: { path: 'app.ts', startLine: 1, startColumn: 1, endLine: 1, endColumn: 20 } },
+          { id: 'edge-call', type: 'CALLS', from: 'handler-1', to: 'downstream-1', resolution: 'resolved', snapshotId: 'snap-view', analyzerVersion: 'v1', evidence: { path: 'app.ts', startLine: 3, startColumn: 1, endLine: 3, endColumn: 20 } },
+          { id: 'edge-flow', type: 'FLOWS_TO', from: 'route-1', to: 'param-1', resolution: 'resolved', snapshotId: 'snap-view', analyzerVersion: 'v1', evidence: { path: 'app.ts', startLine: 2, startColumn: 10, endLine: 2, endColumn: 16 } },
+        ],
+      }),
+    };
+    const app = createApp({ store, persistence: mockPersistence as never, queue: { publish: async () => undefined } });
+    const listResponse = await app.inject({ method: 'GET', url: '/snapshots/snap-view/flows' });
+    const candidateId = listResponse.json().candidates[0].id;
+
+    // 1. Default (control view) includes CALLS, excludes FLOWS_TO
+    const controlRes = await app.inject({ method: 'GET', url: `/snapshots/snap-view/flows/${candidateId}` });
+    expect(controlRes.statusCode).toBe(200);
+    const controlFlow = controlRes.json();
+    expect(controlFlow.relationships.some((r: { type: string }) => r.type === 'CALLS')).toBe(true);
+    expect(controlFlow.relationships.some((r: { type: string }) => r.type === 'FLOWS_TO')).toBe(false);
+
+    // 2. Data view includes FLOWS_TO, excludes CALLS
+    const dataRes = await app.inject({ method: 'GET', url: `/snapshots/snap-view/flows/${candidateId}?view=data` });
+    expect(dataRes.statusCode).toBe(200);
+    const dataFlow = dataRes.json();
+    expect(dataFlow.relationships.some((r: { type: string }) => r.type === 'FLOWS_TO')).toBe(true);
+    expect(dataFlow.relationships.some((r: { type: string }) => r.type === 'CALLS')).toBe(false);
+
+    // 3. All view includes both CALLS and FLOWS_TO
+    const allRes = await app.inject({ method: 'GET', url: `/snapshots/snap-view/flows/${candidateId}?view=all` });
+    expect(allRes.statusCode).toBe(200);
+    const allFlow = allRes.json();
+    expect(allFlow.relationships.some((r: { type: string }) => r.type === 'CALLS')).toBe(true);
+    expect(allFlow.relationships.some((r: { type: string }) => r.type === 'FLOWS_TO')).toBe(true);
+
+    // 4. Invalid view returns 400 Bad Request
+    const invalidRes = await app.inject({ method: 'GET', url: `/snapshots/snap-view/flows/${candidateId}?view=invalid_mode` });
+    expect(invalidRes.statusCode).toBe(400);
+    expect(invalidRes.json()).toMatchObject({ error: 'invalid_view' });
+  });
 });

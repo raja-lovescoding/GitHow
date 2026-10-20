@@ -7,6 +7,7 @@ import { PythonLanguageAdapter } from './adapters/python.js';
 import { GoLanguageAdapter } from './adapters/go.js';
 import { RustLanguageAdapter } from './adapters/rust.js';
 import { resolveTsModule } from './resolution.js';
+import { analyzeTsDataFlow, type FunctionDataFlowSignature } from './dataflow.js';
 import {
   extractExpressFramework,
   extractFastifyFramework,
@@ -450,6 +451,19 @@ export async function analyzeRepository(input: AnalyzeInput): Promise<AnalysisRe
 
     visit(source);
   }
+
+  // Phase 5: Data-Flow Intelligence Pass (Intra-procedural and cross-file value propagation)
+  const functionSignatures = new Map<string, FunctionDataFlowSignature>();
+  analyzeTsDataFlow(parsedSources, {
+    snapshotId: input.snapshotId,
+    version,
+    nodes,
+    edges,
+    declarations,
+    importedBindings,
+    variableClassTypes,
+    functionSignatures,
+  });
 
   // Framework Intelligence Pass: Express & Fastify
   extractExpressFramework(input.snapshotId, version, parsedSources, nodes, edges, declarations, importedBindings, allFilesSet);

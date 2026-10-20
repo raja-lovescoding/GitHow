@@ -17,6 +17,8 @@ describe('Database Schema & Edge Type Mapping', () => {
       'DEPENDS_ON',
       'HOOK',
       'PLUGIN',
+      'FLOWS_TO',
+      'RETURNS_TO',
     ];
 
     for (const edgeType of supportedTypes) {

@@ -11,6 +11,7 @@ import {
   createRouteNode,
   createUnresolvedSymbol,
   joinRoutePath,
+  extractExpressFastifyEntrypointFlow,
 } from './common.js';
 
 const expressMethods = new Set([
@@ -486,6 +487,19 @@ export function extractExpressFramework(
             },
           },
         });
+
+        if (!isMiddleware) {
+          extractExpressFastifyEntrypointFlow(
+            nodes,
+            edges,
+            snapshotId,
+            version,
+            routeId,
+            parsed,
+            argument,
+            handler.id
+          );
+        }
       });
 
       ts.forEachChild(node, routeVisit);

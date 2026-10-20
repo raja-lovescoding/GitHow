@@ -8,6 +8,8 @@ import {
   createRouteNode,
   createUnresolvedSymbol,
   joinRoutePath,
+  createPayloadNodeId,
+  addDataFlowEdge,
 } from './common.js';
 
 interface ParsedGoFile {
@@ -374,6 +376,76 @@ export function extractGinFramework(
                     },
                   },
                 });
+
+                // Extract Gin request data-flow entrypoints (c.Param, c.Query, c.ShouldBindJSON)
+                const targetBody = hNode.type === 'func_literal'
+                  ? hNode.childForFieldName('body')
+                  : parsed.tree.rootNode.children.find(
+                      (c) => c.type === 'function_declaration' && c.childForFieldName('name')?.text === hNode.text
+                    )?.childForFieldName('body');
+
+                if (targetBody) {
+                  const seenGinPayloads = new Set<string>();
+                  const walkGinBody = (n: SyntaxNode) => {
+                    if (n.type === 'call_expression') {
+                      const callFn = n.childForFieldName('function');
+                      if (callFn?.type === 'selector_expression') {
+                        const methodName = callFn.childForFieldName('field')?.text;
+                        if (methodName && ['Param', 'Query', 'ShouldBindJSON', 'BindJSON'].includes(methodName)) {
+                          const sourceKind = methodName === 'Param' ? 'path' : methodName === 'Query' ? 'query' : 'body';
+                          const argList = n.childForFieldName('arguments');
+                          const firstArg = argList?.namedChild(0);
+                          const fieldName = firstArg && (firstArg.type === 'interpreted_string_literal' || firstArg.type === 'raw_string_literal')
+                            ? getCleanString(firstArg) ?? methodName.toLowerCase()
+                            : methodName.toLowerCase();
+                          const pKey = `${sourceKind}:${fieldName}`;
+                          if (!seenGinPayloads.has(pKey)) {
+                            seenGinPayloads.add(pKey);
+                            const payloadId = createPayloadNodeId(snapshotId, version, routeId, sourceKind, fieldName);
+                            const payloadEv = {
+                              path: parsed.path,
+                              startLine: n.startPosition.row + 1,
+                              startColumn: n.startPosition.column + 1,
+                              endLine: n.endPosition.row + 1,
+                              endColumn: n.endPosition.column + 1,
+                              name: `c.${methodName}`,
+                              attributes: { kind: 'entrypoint_payload', source: sourceKind, fieldName, mutation: methodName.includes('Bind') },
+                            };
+                            if (!nodes.has(payloadId)) {
+                              nodes.set(payloadId, {
+                                id: payloadId,
+                                type: 'symbol',
+                                snapshotId,
+                                analyzerVersion: version,
+                                key: `${routeId}:payload:${sourceKind}:${fieldName}`,
+                                evidence: payloadEv,
+                              });
+                            }
+                            addDataFlowEdge(edges, snapshotId, 'FLOWS_TO', routeId, payloadId, 'observed', version, payloadEv);
+
+                            if (resolved.resolution === 'resolved') {
+                              const flowEv = {
+                                path: parsed.path,
+                                startLine: n.startPosition.row + 1,
+                                startColumn: n.startPosition.column + 1,
+                                endLine: n.endPosition.row + 1,
+                                endColumn: n.endPosition.column + 1,
+                                name: `c.${methodName}`,
+                                attributes: { channel: 'entrypoint', source: sourceKind, mutation: methodName.includes('Bind') },
+                              };
+                              addDataFlowEdge(edges, snapshotId, 'FLOWS_TO', payloadId, resolved.id, 'resolved', version, flowEv);
+                            }
+                          }
+                        }
+                      }
+                    }
+                    for (let c = 0; c < n.childCount; c++) {
+                      const ch = n.child(c);
+                      if (ch) walkGinBody(ch);
+                    }
+                  };
+                  walkGinBody(targetBody);
+                }
               });
             }
           }

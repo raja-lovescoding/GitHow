@@ -6,3 +6,4 @@ export * from './adapters/go.js';
 export * from './adapters/rust.js';
 export * from './analyzer.js';
 export * from './flow.js';
+export * from './dataflow.js';

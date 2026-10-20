@@ -8,6 +8,8 @@ import {
   createRouteNode,
   createUnresolvedSymbol,
   joinRoutePath,
+  createPayloadNodeId,
+  addDataFlowEdge,
 } from './common.js';
 
 interface ParsedRustFile {
@@ -166,6 +168,55 @@ export function extractActixFramework(
                   attributes: { role: 'handler', framework: 'actix-web' },
                 },
               });
+
+              // Extract Actix Web request extractors (Path<T>, Query<T>, Json<T>)
+              const paramList = funcNode.childForFieldName('parameters');
+              if (paramList) {
+                for (let p = 0; p < paramList.childCount; p++) {
+                  const param = paramList.child(p);
+                  if (param?.type === 'parameter') {
+                    const typeText = param.childForFieldName('type')?.text ?? '';
+                    const patText = param.childForFieldName('pattern')?.text ?? 'param';
+                    if (typeText.includes('Path') || typeText.includes('Query') || typeText.includes('Json')) {
+                      const sourceKind = typeText.includes('Path') ? 'path' : typeText.includes('Query') ? 'query' : 'body';
+                      const payloadId = createPayloadNodeId(snapshotId, version, routeId, sourceKind, patText);
+                      const payloadEv = {
+                        path: parsed.path,
+                        startLine: param.startPosition.row + 1,
+                        startColumn: param.startPosition.column + 1,
+                        endLine: param.endPosition.row + 1,
+                        endColumn: param.endPosition.column + 1,
+                        name: patText,
+                        attributes: { kind: 'entrypoint_payload', source: sourceKind, extractor: typeText },
+                      };
+                      if (!nodes.has(payloadId)) {
+                        nodes.set(payloadId, {
+                          id: payloadId,
+                          type: 'symbol',
+                          snapshotId,
+                          analyzerVersion: version,
+                          key: `${routeId}:payload:${sourceKind}:${patText}`,
+                          evidence: payloadEv,
+                        });
+                      }
+                      addDataFlowEdge(edges, snapshotId, 'FLOWS_TO', routeId, payloadId, 'observed', version, payloadEv);
+
+                      if (handler.resolution === 'resolved') {
+                        const flowEv = {
+                          path: parsed.path,
+                          startLine: param.startPosition.row + 1,
+                          startColumn: param.startPosition.column + 1,
+                          endLine: param.endPosition.row + 1,
+                          endColumn: param.endPosition.column + 1,
+                          name: patText,
+                          attributes: { channel: 'argument_pass', source: sourceKind, parameterIndex: p },
+                        };
+                        addDataFlowEdge(edges, snapshotId, 'FLOWS_TO', payloadId, handler.id, 'resolved', version, flowEv);
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }

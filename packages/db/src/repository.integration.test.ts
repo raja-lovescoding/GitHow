@@ -30,6 +30,8 @@ describe('PostgreSQL persistence integration', () => {
         { id: `edge-depends-${process.pid}`, type: 'DEPENDS_ON' as const, snapshotId: submission.snapshot.id, analyzerVersion, from: `node2-${process.pid}`, to: `node2-${process.pid}`, resolution: 'resolved' as const, evidence: { path: 'file.ts', startLine: 5, startColumn: 1, endLine: 5, endColumn: 10, name: 'dep' } },
         { id: `edge-hook-${process.pid}`, type: 'HOOK' as const, snapshotId: submission.snapshot.id, analyzerVersion, from: `node2-${process.pid}`, to: `node2-${process.pid}`, resolution: 'resolved' as const, evidence: { path: 'file.ts', startLine: 10, startColumn: 1, endLine: 10, endColumn: 15, name: 'hook' } },
         { id: `edge-plugin-${process.pid}`, type: 'PLUGIN' as const, snapshotId: submission.snapshot.id, analyzerVersion, from: `node2-${process.pid}`, to: `node2-${process.pid}`, resolution: 'resolved' as const, evidence: { path: 'file.ts', startLine: 15, startColumn: 1, endLine: 15, endColumn: 20, name: 'plugin' } },
+        { id: `edge-flows-${process.pid}`, type: 'FLOWS_TO' as const, snapshotId: submission.snapshot.id, analyzerVersion, from: `node2-${process.pid}`, to: `node2-${process.pid}`, resolution: 'resolved' as const, evidence: { path: 'file.ts', startLine: 20, startColumn: 1, endLine: 20, endColumn: 25, attributes: { channel: 'argument_pass', parameterIndex: 0 } as Record<string, string | number | boolean> } },
+        { id: `edge-returns-${process.pid}`, type: 'RETURNS_TO' as const, snapshotId: submission.snapshot.id, analyzerVersion, from: `node2-${process.pid}`, to: `node2-${process.pid}`, resolution: 'resolved' as const, evidence: { path: 'file.ts', startLine: 25, startColumn: 1, endLine: 25, endColumn: 30, attributes: { channel: 'return_value' } as Record<string, string | number | boolean> } },
       ],
       diagnostics: [],
     };
@@ -42,6 +44,8 @@ describe('PostgreSQL persistence integration', () => {
     expect(graph.edges.some((e) => e.id === `edge-depends-${process.pid}` && e.type === 'DEPENDS_ON')).toBe(true);
     expect(graph.edges.some((e) => e.id === `edge-hook-${process.pid}` && e.type === 'HOOK')).toBe(true);
     expect(graph.edges.some((e) => e.id === `edge-plugin-${process.pid}` && e.type === 'PLUGIN')).toBe(true);
+    expect(graph.edges.some((e) => e.id === `edge-flows-${process.pid}` && e.type === 'FLOWS_TO')).toBe(true);
+    expect(graph.edges.some((e) => e.id === `edge-returns-${process.pid}` && e.type === 'RETURNS_TO')).toBe(true);
     const neighborhood = await getNodeNeighborhood(db, submission.snapshot.id, analyzerVersion, graphSchemaVersion, `node-${process.pid}`);
     expect(neighborhood.nodes).toHaveLength(2);
     expect(neighborhood.edges).toHaveLength(1);

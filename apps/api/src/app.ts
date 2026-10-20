@@ -106,9 +106,14 @@ export function createApp(options: AppOptions = {}) {
   });
   app.get('/snapshots/:id/flows/:flowId', async (request, reply) => {
     const params = request.params as { id: string; flowId: string };
+    const query = request.query as { view?: string };
+    const view = query.view ?? 'control';
+    if (view !== 'control' && view !== 'data' && view !== 'all') {
+      return reply.code(400).send({ error: 'invalid_view', message: 'view must be one of: control, data, all.' });
+    }
     const graphData = await persistence.getGraph(params.id, analyzerVersion, graphSchemaVersion, 5000) as { nodes?: AnalysisResult['nodes']; edges?: AnalysisResult['edges'] };
     const graph: Pick<AnalysisResult, 'snapshotId' | 'analyzerVersion' | 'nodes' | 'edges'> = { snapshotId: params.id, analyzerVersion, nodes: graphData?.nodes ?? [], edges: graphData?.edges ?? [] };
-    const flow = assembleFlow(graph, params.flowId);
+    const flow = assembleFlow(graph, params.flowId, { view });
     return flow ? flow : reply.code(404).send({ error: 'not_found', message: 'Flow candidate not found for this snapshot.' });
   });
   return app;

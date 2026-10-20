@@ -23,7 +23,9 @@ export type EdgeType =
   | 'MOUNTS'
   | 'DEPENDS_ON'
   | 'HOOK'
-  | 'PLUGIN';
+  | 'PLUGIN'
+  | 'FLOWS_TO'
+  | 'RETURNS_TO';
 export type ResolutionStatus = 'resolved' | 'unresolved' | 'ambiguous' | 'observed';
 
 export interface SourceEvidence {

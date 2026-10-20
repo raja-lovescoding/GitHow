@@ -11,6 +11,7 @@ import {
   createRouteNode,
   createUnresolvedSymbol,
   joinRoutePath,
+  extractExpressFastifyEntrypointFlow,
 } from './common.js';
 
 const fastifyMethods = new Set([
@@ -491,6 +492,16 @@ export function extractFastifyFramework(
                   attributes: { role: 'handler', framework: 'fastify' },
                 },
               });
+              extractExpressFastifyEntrypointFlow(
+                nodes,
+                edges,
+                snapshotId,
+                version,
+                routeId,
+                parsed,
+                handlerExpr,
+                handlerSym.id
+              );
             }
           }
         }
@@ -604,6 +615,16 @@ export function extractFastifyFramework(
               attributes: { role: 'handler', framework: 'fastify' },
             },
           });
+          extractExpressFastifyEntrypointFlow(
+            nodes,
+            edges,
+            snapshotId,
+            version,
+            routeId,
+            parsed,
+            handlerArg,
+            handlerSym.id
+          );
         }
       }
 

@@ -52,8 +52,20 @@ export function findFlowCandidates(graph: Pick<AnalysisResult, 'snapshotId' | 'n
   }));
 }
 
-export function assembleFlow(graph: Pick<AnalysisResult, 'snapshotId' | 'analyzerVersion' | 'nodes' | 'edges'>, candidateId: string, options: Partial<typeof flowLimits> = {}): DiscoveredFlow | undefined {
-  const limits = { ...flowLimits, ...options };
+export type FlowViewMode = 'control' | 'data' | 'all';
+
+export interface FlowOptions extends Partial<typeof flowLimits> {
+  view?: FlowViewMode;
+}
+
+export function assembleFlow(
+  graph: Pick<AnalysisResult, 'snapshotId' | 'analyzerVersion' | 'nodes' | 'edges'>,
+  candidateId: string,
+  options: FlowOptions = {}
+): DiscoveredFlow | undefined {
+  const view: FlowViewMode = options.view ?? 'control';
+  const defaultLimits = view === 'data' ? { maxDepth: 5, maxFanOut: 6, maxSteps: 40 } : flowLimits;
+  const limits = { ...defaultLimits, ...options };
   const candidate = findFlowCandidates(graph, Number.MAX_SAFE_INTEGER).find((item) => item.id === candidateId);
   if (!candidate) return undefined;
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
@@ -64,6 +76,41 @@ export function assembleFlow(graph: Pick<AnalysisResult, 'snapshotId' | 'analyze
   const relationships: FlowRelationship[] = [];
   const visited = new Set<string>();
   let truncated = false;
+
+  const isEdgeAllowed = (type: GraphEdge['type']): boolean => {
+    if (view === 'control') {
+      return (
+        type === 'ROUTE_HANDLER' ||
+        type === 'MIDDLEWARE' ||
+        type === 'DEPENDS_ON' ||
+        type === 'HOOK' ||
+        type === 'PLUGIN' ||
+        type === 'MOUNTS' ||
+        type === 'CALLS'
+      );
+    }
+    if (view === 'data') {
+      return (
+        type === 'FLOWS_TO' ||
+        type === 'RETURNS_TO' ||
+        type === 'ROUTE_HANDLER' ||
+        type === 'DEPENDS_ON'
+      );
+    }
+    // view === 'all'
+    return (
+      type === 'ROUTE_HANDLER' ||
+      type === 'MIDDLEWARE' ||
+      type === 'DEPENDS_ON' ||
+      type === 'HOOK' ||
+      type === 'PLUGIN' ||
+      type === 'MOUNTS' ||
+      type === 'CALLS' ||
+      type === 'FLOWS_TO' ||
+      type === 'RETURNS_TO'
+    );
+  };
+
   const walk = (nodeId: string, depth: number, role: string, resolution: GraphEdge['resolution']) => {
     const node = nodeById.get(nodeId);
     if (!node || visited.has(nodeId)) return;
@@ -72,15 +119,7 @@ export function assembleFlow(graph: Pick<AnalysisResult, 'snapshotId' | 'analyze
     steps.push({ id: `${candidate.id}:step:${steps.length}`, nodeId, type: node.type, role, label: node.evidence?.name ?? node.key, resolution, evidence: node.evidence });
     const next = outgoing.get(nodeId) ?? [];
     for (const edge of next.slice(0, limits.maxFanOut)) {
-      if (
-        edge.type !== 'ROUTE_HANDLER' &&
-        edge.type !== 'MIDDLEWARE' &&
-        edge.type !== 'DEPENDS_ON' &&
-        edge.type !== 'HOOK' &&
-        edge.type !== 'PLUGIN' &&
-        edge.type !== 'MOUNTS' &&
-        edge.type !== 'CALLS'
-      ) continue;
+      if (!isEdgeAllowed(edge.type)) continue;
       const target = nodeById.get(edge.to);
       relationships.push({ id: edge.id, from: nodeId, to: edge.to, type: edge.type, resolution: edge.resolution, evidence: edge.evidence });
       let nextRole = 'downstream';
@@ -90,6 +129,15 @@ export function assembleFlow(graph: Pick<AnalysisResult, 'snapshotId' | 'analyze
       else if (edge.type === 'HOOK') nextRole = 'hook';
       else if (edge.type === 'PLUGIN') nextRole = 'plugin';
       else if (edge.type === 'MOUNTS') nextRole = 'mount';
+      else if (edge.type === 'FLOWS_TO') {
+        const kind = String(target?.evidence?.attributes?.kind ?? '');
+        if (kind === 'parameter') nextRole = 'parameter';
+        else if (kind === 'variable') nextRole = 'variable';
+        else if (kind === 'entrypoint_payload') nextRole = 'payload';
+        else nextRole = 'data_flow';
+      } else if (edge.type === 'RETURNS_TO') {
+        nextRole = 'return_value';
+      }
 
       if (target) {
         walk(edge.to, depth + 1, nextRole, edge.resolution);
@@ -108,7 +156,19 @@ export function assembleFlow(graph: Pick<AnalysisResult, 'snapshotId' | 'analyze
     }
     if (next.length > limits.maxFanOut) truncated = true;
   };
+
   walk(candidate.nodeId, 0, 'entrypoint', 'observed');
+
+  const limitations = [
+    'Static CALLS edges do not prove runtime execution on every request.',
+    'Dynamic registration, runtime reflection, and dynamic dispatch remain unresolved.',
+    'Conditional middleware, decorators, or hooks may not execute on every request path.',
+  ];
+  if (view === 'data' || view === 'all') {
+    limitations.push('Data-flow propagation does not perform heap-alias or whole-program points-to analysis.');
+    limitations.push('Dynamic reflection, computed property accesses, and third-party library calls remain unresolved.');
+  }
+
   return {
     id: candidate.id,
     snapshotId: graph.snapshotId,
@@ -116,10 +176,6 @@ export function assembleFlow(graph: Pick<AnalysisResult, 'snapshotId' | 'analyze
     steps,
     relationships,
     truncated,
-    limitations: [
-      'Static CALLS edges do not prove runtime execution on every request.',
-      'Dynamic registration, runtime reflection, and dynamic dispatch remain unresolved.',
-      'Conditional middleware, decorators, or hooks may not execute on every request path.',
-    ],
+    limitations,
   };
 }

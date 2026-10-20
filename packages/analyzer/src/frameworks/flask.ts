@@ -8,6 +8,8 @@ import {
   createRouteNode,
   createUnresolvedSymbol,
   joinRoutePath,
+  createPayloadNodeId,
+  addDataFlowEdge,
 } from './common.js';
 
 interface ParsedPyFile {
@@ -307,6 +309,62 @@ export function extractFlaskFramework(
                           attributes: { role: 'handler', framework: 'flask' },
                         },
                       });
+
+                      // Extract request payload data flows from handler body
+                      const funcBody = funcDef.childForFieldName('body');
+                      if (funcBody) {
+                        const seenPayloads = new Set<string>();
+                        const walkFlaskDataFlow = (n: SyntaxNode) => {
+                          if (n.type === 'attribute') {
+                            const obj = n.childForFieldName('object');
+                            const attr = n.childForFieldName('attribute');
+                            if (obj?.text === 'request' && attr) {
+                              const attrName = attr.text;
+                              if (['args', 'form', 'json', 'view_args'].includes(attrName) && !seenPayloads.has(attrName)) {
+                                seenPayloads.add(attrName);
+                                const sourceKind = attrName === 'args' ? 'query' : attrName === 'view_args' ? 'path' : 'body';
+                                const payloadId = createPayloadNodeId(snapshotId, version, routeId, sourceKind, attrName);
+                                const payloadEv = {
+                                  path: parsed.path,
+                                  startLine: n.startPosition.row + 1,
+                                  startColumn: n.startPosition.column + 1,
+                                  endLine: n.endPosition.row + 1,
+                                  endColumn: n.endPosition.column + 1,
+                                  name: `request.${attrName}`,
+                                  attributes: { kind: 'entrypoint_payload', source: sourceKind, fieldName: attrName },
+                                };
+                                if (!nodes.has(payloadId)) {
+                                  nodes.set(payloadId, {
+                                    id: payloadId,
+                                    type: 'symbol',
+                                    snapshotId,
+                                    analyzerVersion: version,
+                                    key: `${routeId}:payload:${sourceKind}:${attrName}`,
+                                    evidence: payloadEv,
+                                  });
+                                }
+                                addDataFlowEdge(edges, snapshotId, 'FLOWS_TO', routeId, payloadId, 'observed', version, payloadEv);
+
+                                const flowEv = {
+                                  path: parsed.path,
+                                  startLine: n.startPosition.row + 1,
+                                  startColumn: n.startPosition.column + 1,
+                                  endLine: n.endPosition.row + 1,
+                                  endColumn: n.endPosition.column + 1,
+                                  name: `request.${attrName}`,
+                                  attributes: { channel: 'entrypoint', source: sourceKind },
+                                };
+                                addDataFlowEdge(edges, snapshotId, 'FLOWS_TO', payloadId, handlerSymId, 'resolved', version, flowEv);
+                              }
+                            }
+                          }
+                          for (let c = 0; c < n.childCount; c++) {
+                            const ch = n.child(c);
+                            if (ch) walkFlaskDataFlow(ch);
+                          }
+                        };
+                        walkFlaskDataFlow(funcBody);
+                      }
                     } else {
                       const unresolvedId = createUnresolvedSymbol(
                         nodes,

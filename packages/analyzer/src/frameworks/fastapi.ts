@@ -8,6 +8,8 @@ import {
   createRouteNode,
   createUnresolvedSymbol,
   joinRoutePath,
+  createPayloadNodeId,
+  addDataFlowEdge,
 } from './common.js';
 
 interface ParsedPyFile {
@@ -423,18 +425,18 @@ export function extractFastApiFramework(
                     });
                   }
 
-                  // Inspect handler parameters for Depends(...) defaults
+                  // Inspect handler parameters for Depends(...) defaults and data-flow entrypoints
                   const paramList = funcDef.childForFieldName('parameters');
                   if (paramList) {
                     for (let p = 0; p < paramList.childCount; p++) {
                       const param = paramList.child(p);
-                      if (
-                        param &&
-                        (param.type === 'default_parameter' || param.type === 'typed_default_parameter')
-                      ) {
+                      if (!param) continue;
+
+                      let depTarget: string | undefined;
+                      if (param.type === 'default_parameter' || param.type === 'typed_default_parameter') {
                         const val = param.childForFieldName('value');
                         if (val) {
-                          const depTarget = extractDependsTarget(val);
+                          depTarget = extractDependsTarget(val);
                           if (depTarget) {
                             const depSym =
                               fileDeclarations.get(`${parsed.path}:${depTarget}`) ??
@@ -474,6 +476,56 @@ export function extractFastApiFramework(
                               },
                             });
                           }
+                        }
+                      }
+
+                      // Data-flow entrypoint extraction for parameters
+                      const paramName = param.childForFieldName('name')?.text ?? (param.type === 'identifier' ? param.text : param.child(0)?.text);
+                      if (paramName && paramName !== 'self' && paramName !== 'cls' && !depTarget) {
+                        let sourceKind: 'path' | 'query' | 'body' = 'query';
+                        const typeNode = param.childForFieldName('type') ?? (param.type === 'typed_parameter' ? param.child(1) : undefined);
+                        const typeText = typeNode?.text ?? '';
+                        if (resolvedPath.includes(`{${paramName}}`) || resolvedPath.includes(`:${paramName}`)) {
+                          sourceKind = 'path';
+                        } else if (typeText && (typeText.startsWith('Body') || (/^[A-Z]/.test(typeText) && !['Int', 'Str', 'Float', 'Bool', 'Optional', 'List', 'Dict', 'Any'].includes(typeText)))) {
+                          sourceKind = 'body';
+                        } else {
+                          sourceKind = 'query';
+                        }
+
+                        const payloadId = createPayloadNodeId(snapshotId, version, routeId, sourceKind, paramName);
+                        const payloadEv = {
+                          path: parsed.path,
+                          startLine: param.startPosition.row + 1,
+                          startColumn: param.startPosition.column + 1,
+                          endLine: param.endPosition.row + 1,
+                          endColumn: param.endPosition.column + 1,
+                          name: `${sourceKind}.${paramName}`,
+                          attributes: { kind: 'entrypoint_payload', source: sourceKind, fieldName: paramName },
+                        };
+                        if (!nodes.has(payloadId)) {
+                          nodes.set(payloadId, {
+                            id: payloadId,
+                            type: 'symbol',
+                            snapshotId,
+                            analyzerVersion: version,
+                            key: `${routeId}:payload:${sourceKind}:${paramName}`,
+                            evidence: payloadEv,
+                          });
+                        }
+                        addDataFlowEdge(edges, snapshotId, 'FLOWS_TO', routeId, payloadId, 'observed', version, payloadEv);
+
+                        if (handlerSymId) {
+                          const flowEv = {
+                            path: parsed.path,
+                            startLine: param.startPosition.row + 1,
+                            startColumn: param.startPosition.column + 1,
+                            endLine: param.endPosition.row + 1,
+                            endColumn: param.endPosition.column + 1,
+                            name: paramName,
+                            attributes: { channel: 'argument_pass', parameterIndex: p, parameterName: paramName },
+                          };
+                          addDataFlowEdge(edges, snapshotId, 'FLOWS_TO', payloadId, handlerSymId, 'resolved', version, flowEv);
                         }
                       }
                     }
