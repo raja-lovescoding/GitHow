@@ -1,94 +1,455 @@
-# GitHow Phase 2
+# GitHow
 
-This repository contains the durable ingestion and Phase 3 repository-intelligence foundation for the GitHow platform. It implements public repository URL entry, immutable GitHub commit resolution, safe tarball manifesting, PostgreSQL persistence, pg-boss jobs, S3-compatible archive/manifest storage, and deterministic TypeScript/JavaScript graph extraction.
+### Understand how a codebase actually works.
 
-## Structure
+GitHow is a developer tool that turns a GitHub repository into a source-backed map of its code structure and relationships.
 
-- `apps/web`: Next.js homepage and `/{owner}/{repo}` repository experience.
-- `apps/api`: Fastify REST API for submission and polling.
-- `apps/worker`: pg-boss worker that downloads, inventories, stores, and finalizes ingestion jobs.
-- `packages/core`: URL rules and shared Zod/domain contracts.
-- `packages/github`: public GitHub metadata and commit/archive access.
-- `packages/ingest`: bounded, path-safe manifest generation.
-- `packages/db`: Drizzle PostgreSQL schema and migrations.
-- `packages/storage`: S3-compatible object storage adapter used by the worker.
-- `packages/analyzer`: syntax-tree-based TypeScript/JavaScript extraction and versioned RIG model.
-- `packages/config`: environment validation.
-- `infra`: local PostgreSQL and MinIO Compose services.
+Instead of jumping between files, searching for function names, and manually tracing imports, GitHow analyzes a repository, builds a **Repository Intelligence Graph (RIG)**, and provides a workspace for exploring files, symbols, relationships, and source code.
 
-Reserved product paths include `/about`, `/pricing`, `/docs`, `/api`, `/_next`, `/_auth`, and `/_share`. Other two-segment paths are treated as repository routes and must match GitHub naming rules.
+**Analyze once. Explore the codebase through its relationships.**
 
-## Local setup
+> GitFlow is the first experience being built on top of the shared intelligence graph. GitExplain and GitTime are planned extensions of the same foundation.
 
-Requirements: Node 22+, pnpm 10+, and Docker Desktop.
+---
 
-### Windows Quickstart (One-Click)
+## The Problem
 
-Simply double-click or run [start.bat](file:///c:/Users/raja2/OneDrive/Pictures/Documents/Repository%20intelligence/GitHow/start.bat) in the root directory. It automatically:
+Understanding an unfamiliar codebase is expensive.
 
-1. Verifies Docker Desktop and `pnpm` are installed and running.
-2. Creates `.env` from `.env.example` if not already present.
-3. Installs dependencies (`pnpm install`).
-4. Starts PostgreSQL and RustFS object storage (`pnpm infra:up`).
-5. Waits for PostgreSQL to be healthy and ready for connections.
-6. Runs database migrations (`pnpm db:migrate`).
-7. Starts the frontend (Next.js), backend (Fastify), and worker dev servers together via Turborepo (`pnpm dev`).
+Developers frequently need to answer questions such as:
 
-To stop all background infrastructure containers, run [stop.bat](file:///c:/Users/raja2/OneDrive/Pictures/Documents/Repository%20intelligence/GitHow/stop.bat).
+- Where does a particular function live?
+- Which modules depend on this file?
+- What does this function call?
+- Where is a class implemented or extended?
+- How are two seemingly unrelated parts of the application connected?
+- Which source code supports a particular relationship?
 
-### Manual setup
+Traditional code navigation helps locate symbols, but understanding how the pieces fit together often requires substantial manual investigation.
+
+GitHow aims to make that investigation faster by extracting code relationships and connecting them directly to their source evidence.
+
+## What GitHow Does
+
+GitHow processes a repository at a specific Git commit and builds a reusable representation of its structure.
+
+<pre>
+GitHub Repository
+       |
+       v
+Resolve Immutable Commit SHA
+       |
+       v
+Download and Validate Repository Archive
+       |
+       v
+Create File Manifest and Snapshot
+       |
+       v
+Parse Source Code and Extract Relationships
+       |
+       v
+Build Repository Intelligence Graph
+       |
+       v
+Persist Graph and Analysis Results
+       |
+       v
+Explore Files, Symbols, Relationships and Source
+</pre>
+
+The graph is the shared foundation for GitHow's different product experiences. Each experience can query the same analyzed snapshot instead of independently reprocessing the repository.
+
+## Product Experiences
+
+### GitFlow — Explore code relationships
+
+GitFlow is the first product experience.
+
+It provides a workspace for exploring a repository's file structure, graph nodes, relationships, and source code. The goal is to help developers navigate from a symbol to its connected code and understand how the repository is organized.
+
+Planned capabilities include deeper relationship traversal, richer graph visualization, and application-level execution-flow discovery.
+
+### GitExplain — Understand individual components
+
+Planned.
+
+GitExplain will help developers understand a function, class, module, or other symbol in the context of its surrounding code. Explanations should be grounded in actual source and graph evidence rather than unsupported model-generated claims.
+
+### GitTime — Understand how code evolves
+
+Planned.
+
+GitTime will use Git history and snapshot comparisons to explore how a repository's structure and relationships change over time.
+
+These experiences are intended to share the same underlying intelligence graph.
+
+---
+
+## Current Capabilities
+
+The current implementation provides the foundation for repository ingestion, static analysis, graph persistence, and code exploration.
+
+- **GitHub repository ingestion:** Resolve a repository reference to an immutable commit SHA.
+- **Immutable snapshots:** Associate analysis results with a specific repository commit.
+- **Safe archive processing:** Validate repository archives and manifests before analyzing supported source files.
+- **TypeScript and JavaScript analysis:** Parse `.ts`, `.tsx`, `.js`, and `.jsx` files using the TypeScript compiler AST.
+- **Symbol extraction:** Identify supported functions, classes, interfaces, methods, constructors, and other declarations.
+- **Relationship extraction:** Record supported imports, exports, declarations, calls, inheritance, and implementation relationships.
+- **Repository Intelligence Graph:** Represent extracted facts as typed nodes and edges with stable identifiers and source evidence.
+- **Conservative resolution:** Preserve unresolved relationships rather than guessing their targets.
+- **Durable background processing:** Run ingestion and analysis through separate worker jobs.
+- **Persistent results:** Store snapshots, analysis status, graph nodes, and graph edges in PostgreSQL.
+- **Object storage:** Store repository archives and manifests using RustFS, an S3-compatible storage service.
+- **Analysis status:** Track progress, diagnostics, completion, and failures.
+- **GitFlow workspace:** Explore repository files, graph data, and source code through the web application.
+- **Idempotent processing:** Reuse eligible snapshots and prevent duplicate analysis work from corrupting graph state.
+
+The exact completeness of individual UI interactions and advanced graph-navigation features should be judged against the current implementation and tests.
+
+## Architecture
+
+GitHow uses a TypeScript monorepo organized around a modular backend and a separate background worker.
+
+```mermaid
+flowchart TD
+    U[Developer] --> WEB[Next.js Web App]
+    WEB --> API[Fastify API]
+    API --> DB[(PostgreSQL)]
+    API --> Q[pg-boss Job Queue]
+    API --> OBJ[(RustFS Object Storage)]
+    Q --> W[Background Worker]
+    W --> GH[GitHub]
+    W --> ING[Safe Ingestion Pipeline]
+    ING --> OBJ
+    W --> AN[Repository Analyzer]
+    AN --> RIG[Repository Intelligence Graph]
+    RIG --> DB
+    API --> VIEW[GitFlow Workspace Data]
+    DB --> VIEW
+    VIEW --> WEB
+```
+
+### Technology Stack
+
+| Layer | Technology |
+|---|---|
+| Language | TypeScript |
+| Frontend | Next.js, React |
+| API | Fastify |
+| Database | PostgreSQL |
+| Database access | Drizzle ORM |
+| Background jobs | pg-boss |
+| Object storage | RustFS, S3-compatible API |
+| Monorepo | pnpm workspaces and Turborepo |
+| Source analysis | TypeScript compiler AST |
+| Validation | Existing typed contracts and validation libraries |
+| Testing | Vitest and the repository's existing test tooling |
+
+The project favors proven libraries for commodity infrastructure while keeping the core intelligence logic under GitHow's control.
+
+Libraries handle tasks such as database access, job scheduling, and syntax-tree construction. GitHow owns its graph model, deterministic identifiers, source provenance, relationship-resolution policies, and exploration logic.
+
+### Repository Structure
+
+The monorepo contains applications and shared packages.
+
+```text
+.
+├── apps/
+│   ├── web/             # Next.js frontend
+│   ├── api/             # Fastify HTTP API
+│   └── worker/          # Ingestion and analysis jobs
+├── packages/
+│   ├── analyzer/        # Source extraction and RIG construction
+│   ├── core/            # Shared domain types and contracts
+│   ├── db/              # PostgreSQL schema, migrations and queries
+│   ├── github/          # GitHub integration
+│   ├── ingest/          # Archive handling and manifest generation
+│   └── config/          # Shared configuration
+├── docs/                # Project documentation
+├── AGENTS.md            # Engineering and coding-agent instructions
+├── docker-compose.yml   # Local infrastructure configuration
+├── pnpm-workspace.yaml
+└── pnpm-lock.yaml
+```
+
+This is a conceptual overview. Consult the actual workspace for the current package inventory.
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+Install the following before starting:
+
+- Node.js version compatible with the repository's `engines` configuration.
+- pnpm version specified by the project's `packageManager` field.
+- Docker Desktop or another compatible Docker Engine and Compose installation.
+- Git.
+
+You will also need network access to retrieve public GitHub repositories.
+
+### 1. Clone the repository
+
+```bash
+git clone <YOUR_GITHUB_REPOSITORY_URL>
+cd <YOUR_REPOSITORY_DIRECTORY>
+```
+
+Replace the placeholders with your actual repository URL and directory.
+
+### 2. Install dependencies
+
+```bash
+pnpm install --frozen-lockfile
+```
+
+This installs the dependencies recorded in the lockfile without updating it.
+
+### 3. Configure environment variables
+
+Start from the example environment file:
+
+```bash
+cp .env.example .env
+```
+
+On Windows PowerShell, use:
 
 ```powershell
-pnpm install
 Copy-Item .env.example .env
+```
+
+Review `.env.example` and the README's configuration notes. Set any required local credentials, database settings, storage settings, and service configuration.
+
+Do not commit `.env` or expose storage credentials.
+
+### 4. Start local infrastructure
+
+```bash
 pnpm infra:up
+```
+
+The current local setup uses PostgreSQL and RustFS.
+
+The documented local endpoints are:
+
+| Service | Address |
+|---|---|
+| Web application | `http://localhost:3000` |
+| API | `http://localhost:4000` |
+| PostgreSQL | `localhost:5433` |
+| RustFS API | `http://localhost:9000` |
+| RustFS console | `http://localhost:9001` |
+
+The PostgreSQL host port is mapped to `5433` to avoid conflicting with an existing local PostgreSQL instance. Verify the actual values in your Compose and environment configuration if you have customized the setup.
+
+### 5. Apply database migrations
+
+```bash
 pnpm db:migrate
 ```
 
-Run the development processes in separate terminals:
+### 6. Start the API
 
-```powershell
+In a separate terminal:
+
+```bash
 pnpm --filter @gitflow/api dev
+```
+
+### 7. Start the background worker
+
+In another terminal:
+
+```bash
 pnpm --filter @gitflow/worker dev
+```
+
+### 8. Start the web application
+
+In another terminal:
+
+```bash
 pnpm --filter @gitflow/web dev
 ```
 
-Open `http://localhost:3000` or a direct repository such as `http://localhost:3000/facebook/react`. The API is at `http://localhost:4000`; PostgreSQL is exposed on `localhost:5433`; local S3-compatible object storage is at `http://localhost:9001`.
+Open:
 
-## Checks
+**http://localhost:3000**
 
-```powershell
+Open a supported public GitHub repository using the application's existing repository route. For example, if the route is configured as `/{owner}/{repo}`, you can visit:
+
+```text
+http://localhost:3000/sindresorhus/p-map
+```
+
+The application should use the existing snapshot and analysis APIs to load the repository's actual status and results.
+
+If a service fails to start, inspect its terminal output and compare its environment configuration with `.env.example`.
+
+---
+
+## Development and Validation
+
+Run the following commands from the repository root.
+
+### Tests
+
+```bash
 pnpm test
+```
+
+Run integration tests where supported:
+
+```bash
+INTEGRATION=1 pnpm test
+```
+
+### Type checking
+
+```bash
 pnpm typecheck
+```
+
+### Production build
+
+```bash
 pnpm build
 ```
 
-Tests use mocked GitHub responses and deterministic tar fixtures. Set `INTEGRATION=1` to run the PostgreSQL and MinIO tests after Docker services are healthy. No GitHub token is required for unit tests; set `GITHUB_TOKEN` in `.env` for better GitHub API rate limits during manual use.
+### Analyzer tests
 
-## Durable ingestion flow
+```bash
+pnpm --filter @gitflow/analyzer test
+```
 
-The API resolves metadata and SHA, transactionally upserts the repository/snapshot/job, and publishes a validated `repository-ingestion` pg-boss message. The worker consumes it, downloads the SHA-pinned archive, applies manifest safety limits, uploads `archive.tar.gz` and `manifest.json` under an immutable SHA/analyzer key, and marks the database rows ready. It then creates one `repository-analysis` job per snapshot/version. The analysis worker verifies the stored manifest against the archive, extracts only supported source files, parses them without executing repository code, and transactionally replaces that version's graph records. Failed jobs clean up uploaded objects and retry transient failures; terminal failures and parse diagnostics remain visible through polling.
+Use the test commands and environment requirements defined by the current package scripts. Integration tests may require the local infrastructure to be running.
 
-For real local verification, ensure Docker Desktop's Linux engine is running, then run `pnpm infra:up`, `pnpm db:migrate`, and `INTEGRATION=1 pnpm test`. Start API, worker, and web in separate terminals. The worker creates the configured object-storage bucket on startup. The Compose service uses RustFS because the `minio/minio` Docker Hub repository is no longer available; RustFS provides the same S3-compatible API used by the application.
+### Useful development practices
 
-## Phase 3 analysis foundation
+- Run tests after changing graph extraction or relationship resolution.
+- Add fixtures for new supported syntax and edge cases.
+- Verify source locations and graph IDs remain deterministic.
+- Test snapshot isolation when changing persistence or API behavior.
+- Keep migrations backward-compatible with the established migration workflow.
+- Never execute code from repositories being analyzed.
 
-The analyzer consumes an immutable snapshot identity and supported source files, parses them with the TypeScript compiler AST (without executing repository code), and emits sorted, content-addressed nodes and edges with one-based source evidence. The parser-specific work is kept behind the analyzer boundary so a future parser can be evaluated without changing the graph model or persistence contracts. For the current TypeScript/JavaScript scope, the compiler AST is the approved parser decision; Tree-sitter is deferred until multi-language support or parser portability justifies the migration cost. It currently covers declarations, classes and basic heritage, ES imports/exports, relative extension and `index` resolution, and conservative direct calls. Parse diagnostics are retained as partial results. Dynamic imports, computed properties, type inference, complex re-exports, decorators, generated code, and framework conventions remain explicit limitations.
+---
 
-Graph records are persisted in `analysis_runs`, `graph_nodes`, and `graph_edges`; `packages/db/drizzle/0003_rig_foundation.sql` is the migration. IDs are SHA-256 hashes of the graph schema version, snapshot ID, record type, stable key, and (for edges) source evidence, so processing order and local filesystem paths cannot change them. The API exposes bounded graph reads at `GET /snapshots/:id/graph?limit=500`.
+## The Repository Intelligence Graph
 
-### GitFlow application flows
+The Repository Intelligence Graph is the central data model behind GitHow.
 
-The analyzer recognizes source-backed Express entrypoints when it sees an Express import or `require` and a receiver created by `express()` or `express.Router()`. Supported registrations are `get`, `post`, `put`, `patch`, `delete`, `all`, and `use`, including literal or top-level string constants, route-level middleware, named local handlers, and inline callbacks. Each route, middleware association, and handler relationship is persisted in the same RIG with source evidence and a resolution status.
+It represents source entities as nodes and relationships as edges.
 
-`GET /snapshots/:id/flows` lists deterministic route candidates from that immutable snapshot. `GET /snapshots/:id/flows/:flow-id` assembles a bounded flow by following ordered route relationships and resolved `CALLS` edges. The web explorer lets users select an entrypoint and source-backed step. `observed` means a construct was directly found in source, `resolved` means a target declaration was linked, and `unresolved` means a plausible target could not be linked.
+### Node examples
 
-Static analysis does not execute repositories or prove runtime order. Dynamic route registration, nested cross-file mount-prefix composition, reflection, dependency injection, conditional behavior, and framework adapters other than Express remain unsupported or explicitly unresolved. Traversal is bounded to eight call levels, six outgoing relationships per node, and eighty steps.
+- Repository snapshots.
+- Source files and modules.
+- Functions and methods.
+- Classes and interfaces.
+- Other supported source declarations.
 
-### Phase 3 acceptance checklist
+### Edge examples
 
-After `pnpm infra:up` and `pnpm db:migrate`, start the API, worker, and web processes in separate terminals with the commands above. Submit a small public GitHub TypeScript/JavaScript repository to `POST http://localhost:4000/repos` using `{"url":"https://github.com/owner/repo"}`. Poll the returned snapshot with `GET /repos/:owner/:repo` until the ingestion job is `completed` and the snapshot is `ready`, then poll `GET /snapshots/:snapshot-id/analysis` until it is `completed`. Retrieve bounded results with `GET /snapshots/:snapshot-id/graph?limit=500` and confirm non-zero source-backed nodes and edges. Repeat the repository submission to verify reuse, restart the API and worker, and confirm the completed analysis and graph remain available. For retry behavior, use the deterministic malformed-archive and extraction-failure fixtures covered by the worker/integration tests; never execute code from the analyzed repository.
+| Relationship | Meaning |
+|---|---|
+| `CONTAINS` | A file or module contains another graph entity. |
+| `DECLARES` | A source file declares a symbol. |
+| `IMPORTS` | A module imports another module or file. |
+| `EXPORTS` | A module or symbol exposes an export. |
+| `CALLS` | A call site refers to a resolved or unresolved target. |
+| `EXTENDS` | A class extends another class. |
+| `IMPLEMENTS` | A class implements an interface. |
 
-## Product naming
+The analyzer only emits relationships supported by its extraction and resolution rules. Not every relationship can be resolved statically.
 
-The public display name is controlled by `NEXT_PUBLIC_PRODUCT_NAME` and defaults to `GitHow`. Technical package names, queue names, table names, and analyzer contracts intentionally remain stable identifiers. This keeps a future GitFlow/GitHow rename to a branding/configuration change rather than a storage or migration rewrite.
+Graph records include stable identifiers and source evidence where applicable, allowing the application to connect graph results back to the relevant repository and source location.
+
+### Determinism and snapshots
+
+Analysis is tied to an immutable repository snapshot. Analyzer and schema versions are part of the relevant identity and persistence contracts.
+
+This makes it possible to distinguish analyses of different commits and avoid treating the current default branch as interchangeable with an older snapshot.
+
+---
+
+## Security and Design Principles
+
+GitHow is designed to analyze repositories as untrusted input.
+
+- **Never execute analyzed repository code.** No package scripts, build scripts, tests, or application code are run as part of repository analysis.
+- **Validate archives and paths.** Extraction must enforce path-safety and resource limits.
+- **Use immutable snapshots.** Graph evidence must correspond to the analyzed commit.
+- **Be honest about uncertainty.** Unresolved relationships remain unresolved rather than being presented as facts.
+- **Bound resource usage.** File extraction and graph/API responses must respect configured limits.
+- **Keep infrastructure simple.** PostgreSQL and a durable worker queue are sufficient for the current architecture; a dedicated graph database or microservices are not required for the initial product.
+- **Keep dependencies purposeful.** Reuse maintained libraries where appropriate without outsourcing GitHow's core intelligence to an opaque platform.
+
+---
+
+## Current Scope and Limitations
+
+GitHow is under active development.
+
+The current analyzer focuses on TypeScript and JavaScript source files. It uses the TypeScript compiler AST and does not claim complete semantic understanding of every framework or programming pattern.
+
+Current limitations include:
+
+- Dynamic behavior cannot always be resolved statically.
+- Complex call targets and computed property access may remain unresolved.
+- Framework-specific application flows require additional extraction logic.
+- A source relationship graph is not equivalent to a complete control-flow or data-flow analysis.
+- Python and other language analyzers are not part of the current supported scope.
+- Private repository access, authentication, and collaboration should not be assumed to be available unless explicitly implemented.
+- GitExplain's full AI-powered explanation experience and GitTime's historical analysis are planned rather than complete product modes.
+
+The goal is to expand capabilities without sacrificing source provenance, determinism, or clarity about what the analyzer actually knows.
+
+---
+
+## Roadmap
+
+The project is organized into incremental phases.
+
+- [x] **Phase 1 — Foundation:** Monorepo, application boundaries, API, database schema, and infrastructure scaffolding.
+- [x] **Phase 2 — Durable ingestion:** Immutable snapshots, safe archive handling, persistent jobs, and object storage.
+- [x] **Phase 3 — Repository Intelligence Graph:** Source extraction, graph persistence, analysis status, and API access.
+- [x] **Phase 4 — GitFlow workspace:** Initial repository explorer, graph data, and source-viewing experience.
+- [ ] **Next — GitFlow depth and polish:** Improve relationship traversal, graph interaction, source navigation, search, filtering, and performance based on acceptance testing.
+- [ ] **Future — GitExplain:** Source-grounded explanations of symbols and their surrounding context.
+- [ ] **Future — GitTime:** Repository evolution and graph changes across Git history.
+- [ ] **Future — Broader language support:** Add language analyzers when justified by real user needs.
+
+The roadmap reflects intended direction, not a claim that every planned feature is already implemented.
+
+---
+
+## Contributing
+
+Contributions should preserve the project's core engineering principles.
+
+1. Read `AGENTS.md` and the architecture documentation before making significant changes.
+2. Understand the existing package boundaries and contracts.
+3. Prefer small, testable changes over broad rewrites.
+4. Reuse existing libraries for commodity infrastructure when appropriate.
+5. Build core graph and relationship intelligence within GitHow.
+6. Add deterministic tests and representative fixtures for analyzer changes.
+7. Never execute code from an analyzed repository.
+8. Run the applicable tests, type checks, and builds before submitting changes.
+9. Document limitations and architectural decisions.
+
+If you are considering a new dependency, explain why it is needed and why the current stack is insufficient.
+
+---
+
+## Project Status
+
+GitHow has a working repository-ingestion and analysis foundation and an initial GitFlow exploration workspace. The project is actively evolving, and the completeness of individual exploration interactions should be verified against the current implementation.
+
+The long-term objective is to make understanding a codebase less about manually following references and more about exploring a trustworthy, source-backed model of how its components connect.
+
+**GitHow — understand the code, not just the files.**
