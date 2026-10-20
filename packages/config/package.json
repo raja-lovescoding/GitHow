@@ -1,0 +1,1 @@
+{"name":"@gitflow/config","version":"0.1.0","type":"module","exports":"./src/index.ts","scripts":{"build":"tsc --noEmit","typecheck":"tsc --noEmit","lint":"tsc --noEmit"},"dependencies":{"zod":"^3.25.76"},"devDependencies":{"typescript":"^5.9.2","@types/node":"^22.15.0"}}
